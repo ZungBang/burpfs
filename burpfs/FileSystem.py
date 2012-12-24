@@ -94,6 +94,10 @@ def totimestamp(dt, epoch=datetime(1970,1,1)):
 
 
 class FileSystem(Fuse):
+    ITEM_STAT=0
+    ITEM_LINK=1
+    ITEM_ROOT=2
+        
     datetime_format = '%Y-%m-%d %H:%M:%S'
 
     null_stat = fuse.Stat(st_mode=stat.S_IFDIR | 0755,
@@ -191,9 +195,9 @@ class FileSystem(Fuse):
         generate unique st_ino for each missing st_ino
         '''
         for tail in self.dirs[head]:
-            if self.dirs[head][tail][0].st_ino == 0:
+            if self.dirs[head][tail][FileSystem.ITEM_STAT].st_ino == 0:
                 self.max_ino += 1
-                self.dirs[head][tail][0].st_ino = self.max_ino
+                self.dirs[head][tail][FileSystem.ITEM_STAT].st_ino = self.max_ino
             subdir = '%s%s/' % (head, tail)
             if subdir in self.dirs:
                 self._update_inodes(subdir)
@@ -213,13 +217,13 @@ class FileSystem(Fuse):
         realpath_list = []
 
         for path in path_list:
-            realpath, found = self._find_in_cache(path)
+            realpath, path_regex, found = self._find_in_cache(path)
             if not realpath:
                 continue
             realpath_list.append(realpath)
             # FIXME: test behavior of hard-link extraction
             if not found:
-                items.append(path)
+                items.append(path_regex)
 
         # FIXME: implement LRU cache policy
         if len(items) > 0:
@@ -243,7 +247,7 @@ class FileSystem(Fuse):
             raise RuntimeError('trying to extract a directory %s' % path)
         # check that path exists in file list
         if head not in self.dirs or tail not in self.dirs[head]:
-            return None, False
+            return None, None, False
         # return if file has already been extracted
         bs = self.getattr(path)
         if os.path.exists(realpath) or os.path.lexists(realpath):
@@ -255,9 +259,11 @@ class FileSystem(Fuse):
                                   'st_gid',
                                   'st_size']] # should also check st_mtime, but it's broken
             if all(conds):
-                return realpath, True
-        # we need to extract the file
-        return realpath, False
+                return realpath, None, True
+        # we need to extract the file - build regex for burp
+        item_path = path if self.dirs[head][tail][FileSystem.ITEM_ROOT] else path[1:]
+        regex = r'^' + re.escape(item_path) + r'$'
+        return realpath, regex, False
 
     def _burp_set_status(self, status):
         '''
@@ -325,7 +331,7 @@ class FileSystem(Fuse):
             cmd_prefix += ['-C', self.client]
         cmd_prefix += ['-a', 'r', '-f', '-b', str(self.backup), '-d', self.cache_path, '-r']
         for item in items:
-            cmd = cmd_prefix + [r'^' + re.escape(item) + r'$']
+            cmd = cmd_prefix + [item]
             self.logger.debug('$ %s' % ' '.join(cmd))
             self._burp_set_status({'path': item,
                                    'state': 'run'})
@@ -480,8 +486,11 @@ class FileSystem(Fuse):
 
         if not path.startswith('/'):
             path = '/' + path
+            under_root = False
+        else:
+            under_root = True
         head, tail = self._split(path)
-        entry = (self._tokens_to_stat(tokens[0:7]), target)
+        entry = (self._tokens_to_stat(tokens[0:7]), target, under_root)
         return head, tail, entry
         
     def initialize(self, version):
@@ -515,8 +524,8 @@ class FileSystem(Fuse):
             head, tail, entry = self._create_file_entry(file)
             # find max st_ino
             if self.use_ino:
-                if entry[0].st_ino > self.max_ino:
-                    self.max_ino = entry[0].st_ino
+                if entry[FileSystem.ITEM_STAT].st_ino > self.max_ino:
+                    self.max_ino = entry[FileSystem.ITEM_STAT].st_ino
             # new directory
             if head not in self.dirs:
                 self.dirs[head] = {}
@@ -605,7 +614,7 @@ class FileSystem(Fuse):
         '''
         head, tail = self._split(path)
         if head in self.dirs and tail in self.dirs[head]:
-            attrs = self.dirs[head][tail][0]
+            attrs = self.dirs[head][tail][FileSystem.ITEM_STAT]
             # zero negative timestamps
             # FIXME: move to dirs generation 
             for a in ['st_atime', 'st_mtime', 'st_ctime']:
@@ -640,7 +649,7 @@ class FileSystem(Fuse):
         read link contents
         '''
         head, tail = self._split(path)
-        link = self.dirs[head][tail][1]
+        link = self.dirs[head][tail][FileSystem.ITEM_LINK]
         if link:
             if self.move_root and link.startswith('/'):
                 link = os.path.normpath(self.fuse_args.mountpoint + link)
@@ -660,7 +669,7 @@ class FileSystem(Fuse):
             # size recorded by burp by the size of the vss header
             head, tail = fs._split(path)
             self.header_size = (os.stat(self.realpath).st_size -
-                                fs.dirs[head][tail][0].st_size)
+                                fs.dirs[head][tail][FileSystem.ITEM_STAT].st_size)
             if self.header_size < 0:
                 self.header_size = 0
             self.file = os.fdopen(os.open(self.realpath, flags, *mode),
