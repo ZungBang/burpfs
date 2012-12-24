@@ -477,7 +477,9 @@ class FileSystem(Fuse):
         else:
             path = ' '.join(tokens[7:])
             target = None
-            
+
+        if not path.startswith('/'):
+            path = '/' + path
         head, tail = self._split(path)
         entry = (self._tokens_to_stat(tokens[0:7]), target)
         return head, tail, entry
@@ -653,6 +655,14 @@ class FileSystem(Fuse):
                 raise IOError(errno.EACCES, '')
             self.path = path
             self.realpath = fs._extract([path])[0]
+            # extracted file may contain a vss header
+            # so that the actual restored file size is larger than
+            # size recorded by burp by the size of the vss header
+            head, tail = fs._split(path)
+            self.header_size = (os.stat(self.realpath).st_size -
+                                fs.dirs[head][tail][0].st_size)
+            if self.header_size < 0:
+                self.header_size = 0
             self.file = os.fdopen(os.open(self.realpath, flags, *mode),
                                   flag2mode(flags))
             self.fd = self.file.fileno()
@@ -660,7 +670,7 @@ class FileSystem(Fuse):
             self.keep_cache = True
 
         def read(self, length, offset):
-            self.file.seek(offset)
+            self.file.seek(offset + self.header_size) # skip vss header
             return self.file.read(length)
 
         def release(self, flags):
@@ -704,6 +714,11 @@ BurpFS: exposes the Burp backup storage as a Filesystem in USErspace
 
     server.multithreaded = True
 
+    server.parser.add_option(mountopt="burp",
+                             metavar="PATH",
+                             default=server.burp,
+                             help=("path to burp executable "
+                                   "[default: %default]"))
     server.parser.add_option(mountopt="conf",
                              metavar="PATH",
                              default=server.conf,
