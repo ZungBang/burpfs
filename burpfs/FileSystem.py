@@ -664,14 +664,6 @@ class FileSystem(Fuse):
                 raise IOError(errno.EACCES, '')
             self.path = path
             self.realpath = fs._extract([path])[0]
-            # extracted file may contain a vss header
-            # so that the actual restored file size is larger than
-            # size recorded by burp by the size of the vss header
-            head, tail = fs._split(path)
-            self.header_size = (os.stat(self.realpath).st_size -
-                                fs.dirs[head][tail][FileSystem.ITEM_STAT].st_size)
-            if self.header_size < 0:
-                self.header_size = 0
             self.file = os.fdopen(os.open(self.realpath, flags, *mode),
                                   flag2mode(flags))
             self.fd = self.file.fileno()
@@ -679,7 +671,7 @@ class FileSystem(Fuse):
             self.keep_cache = True
 
         def read(self, length, offset):
-            self.file.seek(offset + self.header_size) # skip vss header
+            self.file.seek(offset)
             return self.file.read(length)
 
         def release(self, flags):
