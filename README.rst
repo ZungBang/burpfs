@@ -37,7 +37,7 @@ There's no official release at this point, so please clone the public
 **BurpFS** Git repository_ and run ``burpfs`` as ``root`` from the
 ``burpfs`` directory.
 
-**BurpFS** requires Burp 1.3.8 and up, Python_ 2.7 and Python FUSE_.
+**BurpFS** requires Burp 1.3.20 and up, Python_ 2.7 and Python FUSE_.
 
 .. _repository: https://github.com/ZungBang/burpfs.git
 .. _Python: http://www.python.org
