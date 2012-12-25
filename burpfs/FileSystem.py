@@ -33,11 +33,10 @@ import traceback
 import fcntl
 import time
 import re
-import binascii
+import json
 from datetime import datetime
 from bisect import bisect_left, bisect_right
 
-import ModeString
 from LogFile import *
 
 # pull in some spaghetti to make this stuff work
@@ -91,6 +90,42 @@ def totimestamp(dt, epoch=datetime(1970,1,1)):
     '''
     td = dt - epoch
     return (td.microseconds + (td.seconds + td.days * 24 * 3600) * 10**6) / 1e6
+
+
+'''
+_decode_list and _decode_dict below are used to convince the JSON
+parser (json.loads) to avoid coercing everything into unicode because
+FUSE doesn't seem to like unicode strings (a simple eval instead of
+json.loads works, but it's not considered safe)
+
+taken from:
+http://stackoverflow.com/a/6633651
+'''
+def _decode_list(data):
+    rv = []
+    for item in data:
+        if isinstance(item, unicode):
+            item = item.encode('utf-8')
+        elif isinstance(item, list):
+            item = _decode_list(item)
+        elif isinstance(item, dict):
+            item = _decode_dict(item)
+        rv.append(item)
+    return rv
+
+def _decode_dict(data):
+    rv = {}
+    for key, value in data.iteritems():
+        if isinstance(key, unicode):
+            key = key.encode('utf-8')
+        if isinstance(value, unicode):
+            value = value.encode('utf-8')
+        elif isinstance(value, list):
+            value = _decode_list(value)
+        elif isinstance(value, dict):
+            value = _decode_dict(value)
+        rv[key] = value
+    return rv
 
 
 class FileSystem(Fuse):
@@ -386,22 +421,23 @@ class FileSystem(Fuse):
                                '([0-9]{4})-([0-9]{2})-([0-9]{2}) ' +
                                '([0-9]{2}):([0-9]{2}):([0-9]{2})'),
                               stdout, re.MULTILINE)
-        if not matches:
-            # FIXME: handle burp errors (lock, etc)
-            self.logger.debug('%s' % stderr)
-            raise RuntimeError('cannot determine list of available backups')
+        if matches:
+            available_backups = [
+                (int(match.group(1)), 
+                 datetime.strptime(
+                        '%s-%s-%s %s:%s:%s' % (match.group(2),
+                                               match.group(3),
+                                               match.group(4),
+                                               match.group(5),
+                                               match.group(6),
+                                               match.group(7)),
+                        FileSystem.datetime_format)) for match in matches
+                ]
 
-        available_backups = [
-            (int(match.group(1)), 
-             datetime.strptime(
-                    '%s-%s-%s %s:%s:%s' % (match.group(2),
-                                           match.group(3),
-                                           match.group(4),
-                                           match.group(5),
-                                           match.group(6),
-                                           match.group(7)),
-                    FileSystem.datetime_format)) for match in matches
-            ]
+        if not matches or not available_backups:
+            # FIXME: handle burp errors (lock, etc)
+            self.logger.debug('%s%s' % (stdout, stderr))
+            raise RuntimeError('cannot determine list of available backups')
 
         backup_ids, backup_dates = zip(*available_backups)
         ibackup = None
@@ -429,68 +465,52 @@ class FileSystem(Fuse):
         backup_date = datetime.strftime(backup_dates[nbackup], FileSystem.datetime_format)
         self.logger.info('Backup: %07d %s' % (ibackup, backup_date))
         
-        cmd = cmd_prefix + ['-b', '%d' % ibackup, '-a', 'L']
+        cmd = cmd_prefix + ['-b', '%d' % ibackup, '-a', 'L', '-j']
         self.logger.debug('Getting list of files in backup with: %s' % ' '.join(cmd))
         p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         stdout, stderr = p.communicate()
-        files = [line for line in stdout.splitlines()
+        backup = json.loads(' '.join(
+                [line for line in stdout.splitlines()
                  if not re.match(('^([0-9]{4})-([0-9]{2})-([0-9]{2}) ' +
-                                  '([0-9]{2}):([0-9]{2}):([0-9]{2}):.*'), line)][2:]
+                                  '([0-9]{2}):([0-9]{2}):([0-9]{2}):.*'), line)]),
+                            object_hook=_decode_dict)
+        files = backup['items']
         return files, ibackup, backup_date
 
 
-    def _tokens_to_stat(self, tokens):
+    def _json_to_stat(self, item):
         '''
-        convert file entry tokens into file stat structure
+        convert JSON file entry tokens into file stat structure
         '''
-        # we set all timestamps to be mtime, since burp does not list
-        # the others even though it seems to keep them
-        # FIXME: actually burp lists max(mtime, ctime) which breaks the cache
-        mtime = totimestamp(datetime.strptime(tokens[5] + ' ' + tokens[6],
-                                              FileSystem.datetime_format),
-                            
-                            datetime.fromtimestamp(0))
-        st = fuse.Stat(st_mode=ModeString.string_to_mode(tokens[0]),
-                       st_ino=0,
-                       st_dev=0,
-                       st_nlink=int(tokens[1]),
-                       st_uid=int(tokens[2]),
-                       st_gid=int(tokens[3]),
-                       st_size=long(tokens[4]),
-                       st_atime=mtime,
-                       st_mtime=mtime,
-                       st_ctime=mtime,
+        st = fuse.Stat(st_mode=item['st_mode'],
+                       st_ino=item['st_ino'],
+                       st_dev=item['st_dev'],
+                       st_nlink=item['st_nlink'],
+                       st_uid=item['st_uid'],
+                       st_gid=item['st_gid'],
+                       st_size=item['st_size'],
+                       st_atime=item['st_atime'],
+                       st_mtime=item['st_mtime'],
+                       st_ctime=item['st_ctime'],
                        st_blksize=0,
                        st_rdev=0)
         return st
     
         
-    def _create_file_entry(self, line):
+    def _create_file_entry(self, item):
         '''
-        create file entry tuple from file listing line
+        create file entry tuple from a JSON file entry
         also splits file path into head and tail
         '''
-        tokens = line.split()
-        # link detection is likely to break
-        # FIXME: need to fix this in burp
-        if tokens[0][0] == 'l':
-            try:
-                index = tokens[7:].index('->')
-            except ValueError:
-                raise RuntimeError('cannot parse link entry - "%s"' % line)
-            path = ' '.join(tokens[7:(7+index)])
-            target = ' '.join(tokens[(8+index):])
-        else:
-            path = ' '.join(tokens[7:])
-            target = None
-
+        path = item['name']
         if not path.startswith('/'):
             path = '/' + path
             under_root = False
         else:
             under_root = True
         head, tail = self._split(path)
-        entry = (self._tokens_to_stat(tokens[0:7]), target, under_root)
+        target = item['link'] if item['type'] in ['l', 'L'] else None
+        entry = (self._json_to_stat(item), target, under_root)
         return head, tail, entry
         
     def initialize(self, version):
@@ -633,6 +653,7 @@ class FileSystem(Fuse):
         read directory entries
         '''
         path = path if path.endswith('/') else path + '/'
+        print path, self.dirs[path].keys()
         for key in ['.', '..']:
             yield fuse.Direntry(key)
         for key in self.dirs[path].keys():

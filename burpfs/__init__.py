@@ -22,4 +22,4 @@
 """
 from FileSystem import __version__, main
 
-__all__ = ["FileSystem", "ModeString", "LogFile"]
+__all__ = ["FileSystem", "LogFile"]
