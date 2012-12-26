@@ -469,11 +469,11 @@ class FileSystem(Fuse):
         self.logger.debug('Getting list of files in backup with: %s' % ' '.join(cmd))
         p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         stdout, stderr = p.communicate()
-        backup = json.loads(' '.join(
-                [line for line in stdout.splitlines()
-                 if not re.match(('^([0-9]{4})-([0-9]{2})-([0-9]{2}) ' +
-                                  '([0-9]{2}):([0-9]{2}):([0-9]{2}):.*'), line)]),
-                            object_hook=_decode_dict)
+        json_string = '\n'.join(
+            [line for line in stdout.splitlines()
+             if not re.match(('^([0-9]{4})-([0-9]{2})-([0-9]{2}) ' +
+                              '([0-9]{2}):([0-9]{2}):([0-9]{2}):.*'), line)])
+        backup = json.loads(json_string, object_hook=_decode_dict)
         files = backup['items']
         return files, ibackup, backup_date
 
@@ -653,7 +653,6 @@ class FileSystem(Fuse):
         read directory entries
         '''
         path = path if path.endswith('/') else path + '/'
-        print path, self.dirs[path].keys()
         for key in ['.', '..']:
             yield fuse.Direntry(key)
         for key in self.dirs[path].keys():
