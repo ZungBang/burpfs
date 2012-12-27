@@ -132,6 +132,7 @@ class FileSystem(Fuse):
     ITEM_STAT=0
     ITEM_LINK=1
     ITEM_ROOT=2
+    ITEM_HARD=3
         
     datetime_format = '%Y-%m-%d %H:%M:%S'
 
@@ -252,13 +253,13 @@ class FileSystem(Fuse):
         realpath_list = []
 
         for path in path_list:
-            realpath, path_regex, found = self._find_in_cache(path)
-            if not realpath:
+            realpaths, path_regexs, found = self._find_in_cache(path)
+            if not realpaths:
                 continue
-            realpath_list.append(realpath)
-            # FIXME: test behavior of hard-link extraction
+            realpath_list.extend(realpaths)
             if not found:
-                items.append(path_regex)
+                items.extend(path_regexs)
+        
 
         # FIXME: implement LRU cache policy
         if len(items) > 0:
@@ -273,6 +274,7 @@ class FileSystem(Fuse):
         '''
         return path in cache corresponding to input path and boolean
         that's true if the path was found in cache
+        may return up to two paths in case path is a hard link
         '''
         realpath = os.path.normpath(self.cache_path + '/' + path)
         self.logger.debug('realpath=%s' % realpath)
@@ -292,13 +294,28 @@ class FileSystem(Fuse):
                      for attr in ['st_mode',
                                   'st_uid',
                                   'st_gid',
-                                  'st_size']] # should also check st_mtime, but it's broken
+                                  'st_size',
+                                  'st_mtime']]
             if all(conds):
-                return realpath, None, True
-        # we need to extract the file - build regex for burp
+                return [realpath], None, True
+
+        realpaths = [realpath]
+        regexs = []
+        # build regex for burp
         item_path = path if self.dirs[head][tail][FileSystem.ITEM_ROOT] else path[1:]
-        regex = r'^' + re.escape(item_path) + r'$'
-        return realpath, regex, False
+        regexs.append(r'^' + re.escape(item_path) + r'$')
+
+        # we need to extract the file
+        # but, if it's a hard-link we must also make sure the link target
+        # exists or is extracted before
+        if self.dirs[head][tail][FileSystem.ITEM_HARD]:
+            link_path = self.dirs[head][tail][FileSystem.ITEM_LINK]
+            link_realpaths, link_regexs, link_found = self._find_in_cache(link_path)
+            if not link_found and link_regexs:
+                realpaths = link_realpaths + realpaths
+                regexs = link_regexs + regexs
+                
+        return realpaths, regexs, False
 
     def _burp_set_status(self, status):
         '''
@@ -510,7 +527,8 @@ class FileSystem(Fuse):
             under_root = True
         head, tail = self._split(path)
         target = item['link'] if item['type'] in ['l', 'L'] else None
-        entry = (self._json_to_stat(item), target, under_root)
+        hardlink = item['type'] == 'L'
+        entry = (self._json_to_stat(item), target, under_root, hardlink)
         return head, tail, entry
         
     def initialize(self, version):
