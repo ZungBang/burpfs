@@ -23,7 +23,7 @@ the Burp backup storage as a read-only filesystem in userspace.
 use-cases:
 
 - maintaining a remote snapshot of the files in the backup storage
-  using `rsync`_ (see Limitations_ below)
+  using `rsync`_ 
 - auditing the contents of backup jobs at the client side
 - comparing backup jobs (using several mount points)
 
@@ -79,15 +79,6 @@ Limitations
 -----------
 **BurpFS** is in its rough-around-the-edges alpha stage. Expect
 breakage. Please report Bugs_.
-
-Known Issues
-~~~~~~~~~~~~
-
-File timestamps are wrong: **BurpFS** uses ``burp -a L`` to determine
-the attributes of files in the Burp backup. But Burp reports the
-maximum of the change and modification times as the sole timestamp for
-each file in the backup, so **BurpFS** uses this value for all
-timestamps: change, modification and access times.
 
 
 Changelog
