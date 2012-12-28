@@ -744,6 +744,9 @@ BurpFS: exposes the Burp backup storage as a Filesystem in USErspace
 
     burp_version = _burp_version()
 
+    # force -o sync_read
+    sys.argv.extend(['-o', 'sync_read'])
+    
     server = FileSystem(
         version=(
             "BurpFS version: %s\nburp version: %s\n"
