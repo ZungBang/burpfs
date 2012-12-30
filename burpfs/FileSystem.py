@@ -563,6 +563,7 @@ class FileSystem(Fuse):
         # build dirs data structure
         for file in files:
             head, tail, entry = self._create_file_entry(file)
+            path = head + tail
             # find max st_ino
             if self.use_ino:
                 if entry[FileSystem.ITEM_STAT].st_ino > self.max_ino:
@@ -570,6 +571,10 @@ class FileSystem(Fuse):
             # new directory
             if head not in self.dirs:
                 self.dirs[head] = {}
+            # is entry a directory itself?
+            if (stat.S_ISDIR(entry[FileSystem.ITEM_STAT].st_mode) and
+                path + '/' not in self.dirs):
+                self.dirs[path + '/'] = {}
             # add parent directories
             self._add_parent_dirs(head)
             # and finally
