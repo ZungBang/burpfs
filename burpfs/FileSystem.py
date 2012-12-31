@@ -455,8 +455,7 @@ class FileSystem(Fuse):
                 ]
 
         if not matches or not available_backups:
-            # FIXME: handle burp errors (lock, etc)
-            self.logger.debug('%s%s' % (stdout, stderr))
+            self.logger.error('%s%s' % (stdout, stderr))
             raise RuntimeError('cannot determine list of available backups')
 
         backup_ids, backup_dates = zip(*available_backups)
