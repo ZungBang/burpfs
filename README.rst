@@ -9,7 +9,7 @@ USErspace (FUSE_).
 .. _Burp: http://burp.grke.net/
 .. _FUSE: http://fuse.sourceforge.net/
 
-Copyright |(C)| 2012 Avi Rozen <avi.rozen@gmail.com>
+Copyright |(C)| 2012, 2013 Avi Rozen <avi.rozen@gmail.com>
 
 .. contents:: 
 
@@ -26,6 +26,7 @@ use-cases:
   using `rsync`_ 
 - auditing the contents of backup jobs at the client side
 - comparing backup jobs (using several mount points)
+- easier restore from backup
 
 .. _rsync: http://rsync.samba.org/
 
@@ -37,7 +38,7 @@ There's no official release at this point, so please clone the public
 **BurpFS** Git repository_ and run ``burpfs`` as ``root`` from the
 ``burpfs`` directory.
 
-**BurpFS** requires Burp 1.3.20 and up, Python_ 2.7 and Python FUSE_.
+**BurpFS** requires Burp 1.3.22 and up, Python_ 2.7 and Python FUSE_.
 
 .. _repository: https://github.com/ZungBang/burpfs.git
 .. _Python: http://www.python.org
@@ -80,9 +81,28 @@ Limitations
 **BurpFS** is in its rough-around-the-edges alpha stage. Expect
 breakage. Please report Bugs_.
 
+If you intend to mount a Windows backup file set with **BurpFS**,
+you'll need to set ``split_vss=1`` in the Windows client configuration
+file, or else all files will contain extra bytes (the VSS
+header/footer).
+
 
 Changelog
 ---------
+**Version 0.1.0 (2013-01-03)**
+
+- switched to burp JSON long listing format (requires Burp 1.3.22 and
+  up):
+  
+  + fixed ``-o use_ino`` so that files can have their original inode
+    numbers
+  + fixed file timestamps
+  + fixed handling of hardlinks
+
+- fixed handling of Windows paths
+- fixed handling of empty directories
+- several stability workarounds
+
 **Version 0.0.1 (2012-12-21-End of The World Release)**
 
 - initial public release
