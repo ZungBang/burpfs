@@ -86,6 +86,12 @@ you'll need to set ``split_vss=1`` in the Windows client configuration
 file, or else all files will contain extra bytes (the VSS
 header/footer).
 
+**BurpFS** queries the Burp server for the files list only once, as
+the the filesystem is initialized. There's nothing to prevent the
+backup being represented from being deleted at the server side while
+the filesystem is mounted. **BurpFS** is liable to fail in interesting
+ways in this case.
+
 
 Changelog
 ---------
