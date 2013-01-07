@@ -129,11 +129,30 @@ def _decode_dict(data):
 
 
 class FileSystem(Fuse):
-    ITEM_STAT=0
-    ITEM_LINK=1
-    ITEM_ROOT=2
-    ITEM_HARD=3
-        
+
+    class _Entry:
+        def __init__(self,
+                     fs,
+                     path,
+                     stat=None,
+                     link_target=None,
+                     under_root=False,
+                     hardlink=False):
+            self.path = path
+            self.stat = stat if stat else FileSystem.null_stat
+            self.link_target = link_target
+            self.under_root = under_root
+            self.hardlink = hardlink
+            # zero negative timestamps
+            for a in ['st_atime', 'st_mtime', 'st_ctime']:
+                t = getattr(self.stat, a)
+                if t < 0:
+                    fs.logger.warning(
+                        '%s has negative timestamp %s=%d, will use 0' %
+                        (path, a, t))
+                    setattr(self.stat, a, 0)
+
+
     datetime_format = '%Y-%m-%d %H:%M:%S'
 
     null_stat = fuse.Stat(st_mode=stat.S_IFDIR | 0755,
@@ -176,7 +195,6 @@ class FileSystem(Fuse):
 
         self._extract_lock = threading.Lock()
         self._burp_status_lock = threading.Lock()
-
         self._initialized = False
 
         # default option values
@@ -191,7 +209,7 @@ class FileSystem(Fuse):
         self.move_root = False
         self.use_ino = False
         self.max_ino = 0
-        self.dirs = {'/': {'': (FileSystem.null_stat, None)}}
+        self.dirs = {'/': {'': FileSystem._Entry(self, '/')}}
 
         self._burp_status = copy.deepcopy(FileSystem.burp_done)
         self._burp_status['pending'] = 0
@@ -221,9 +239,9 @@ class FileSystem(Fuse):
         if not head or head == path:
             return
         if not head in self.dirs:
-            self.dirs[head] = {tail: (FileSystem.null_stat,)}
+            self.dirs[head] = {tail: FileSystem._Entry(self, path)}
         elif not tail in self.dirs[head]:
-            self.dirs[head][tail] = (FileSystem.null_stat,)
+            self.dirs[head][tail] = FileSystem._Entry(self, path)
         self._add_parent_dirs(head)
 
     def _update_inodes(self, head):
@@ -231,9 +249,9 @@ class FileSystem(Fuse):
         generate unique st_ino for each missing st_ino
         '''
         for tail in self.dirs[head]:
-            if self.dirs[head][tail][FileSystem.ITEM_STAT].st_ino == 0:
+            if self.dirs[head][tail].stat.st_ino == 0:
                 self.max_ino += 1
-                self.dirs[head][tail][FileSystem.ITEM_STAT].st_ino = self.max_ino
+                self.dirs[head][tail].stat.st_ino = self.max_ino
             subdir = '%s%s/' % (head, tail)
             if subdir in self.dirs:
                 self._update_inodes(subdir)
@@ -259,9 +277,7 @@ class FileSystem(Fuse):
             realpath_list.extend(realpaths)
             if not found:
                 items.extend(path_regexs)
-        
 
-        # FIXME: implement LRU cache policy
         if len(items) > 0:
             self._burp(items)
 
@@ -302,14 +318,14 @@ class FileSystem(Fuse):
         realpaths = [realpath]
         regexs = []
         # build regex for burp
-        item_path = path if self.dirs[head][tail][FileSystem.ITEM_ROOT] else path[1:]
+        item_path = path if self.dirs[head][tail].under_root else path[1:]
         regexs.append(r'^' + re.escape(item_path) + r'$')
 
         # we need to extract the file
         # but, if it's a hard-link we must also make sure the link target
         # exists or is extracted before
-        if self.dirs[head][tail][FileSystem.ITEM_HARD]:
-            link_path = self.dirs[head][tail][FileSystem.ITEM_LINK]
+        if self.dirs[head][tail].hardlink:
+            link_path = self.dirs[head][tail].link_target
             link_realpaths, link_regexs, link_found = self._find_in_cache(link_path)
             if not link_found and link_regexs:
                 realpaths = link_realpaths + realpaths
@@ -530,9 +546,14 @@ class FileSystem(Fuse):
         head, tail = self._split(path)
         target = item['link'] if item['type'] in ['l', 'L'] else None
         hardlink = item['type'] == 'L'
-        entry = (self._json_to_stat(item), target, under_root, hardlink)
+        entry = FileSystem._Entry(self,
+                                  path,
+                                  stat=self._json_to_stat(item),
+                                  link_target=target,
+                                  under_root=under_root,
+                                  hardlink=hardlink)
         return head, tail, entry
-        
+
     def initialize(self, version):
         '''
         initialize file list
@@ -565,13 +586,13 @@ class FileSystem(Fuse):
             path = head + tail
             # find max st_ino
             if self.use_ino:
-                if entry[FileSystem.ITEM_STAT].st_ino > self.max_ino:
-                    self.max_ino = entry[FileSystem.ITEM_STAT].st_ino
+                if entry.stat.st_ino > self.max_ino:
+                    self.max_ino = entry.stat.st_ino
             # new directory
             if head not in self.dirs:
                 self.dirs[head] = {}
             # is entry a directory itself?
-            if (stat.S_ISDIR(entry[FileSystem.ITEM_STAT].st_mode) and
+            if (stat.S_ISDIR(entry.stat.st_mode) and
                 path + '/' not in self.dirs):
                 self.dirs[path + '/'] = {}
             # add parent directories
@@ -659,17 +680,7 @@ class FileSystem(Fuse):
         '''
         head, tail = self._split(path)
         if head in self.dirs and tail in self.dirs[head]:
-            attrs = self.dirs[head][tail][FileSystem.ITEM_STAT]
-            # zero negative timestamps
-            # FIXME: move to dirs generation 
-            for a in ['st_atime', 'st_mtime', 'st_ctime']:
-                t = getattr(attrs, a)
-                if t < 0:
-                    self.logger.warning(
-                        '%s has negative timestamp %s=%d, will use 0' %
-                        (path, a, t))
-                    setattr(attrs, a, 0)
-            return attrs
+            return self.dirs[head][tail].stat
         else:
             return -errno.ENOENT
 
@@ -694,7 +705,7 @@ class FileSystem(Fuse):
         read link contents
         '''
         head, tail = self._split(path)
-        link = self.dirs[head][tail][FileSystem.ITEM_LINK]
+        link = self.dirs[head][tail].link_target
         if link:
             if self.move_root and link.startswith('/'):
                 link = os.path.normpath(self.fuse_args.mountpoint + link)
