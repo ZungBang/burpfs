@@ -740,31 +740,31 @@ class BurpFuseOptParse(FuseOptParse):
     command line option 
     '''
     def __init__(self, *args, **kw):
-        self.burp_version = None
+        self._burp_version = None
         FuseOptParse.__init__(self, *args, **kw)
 
     def get_version(self):
         return ("BurpFS version: %s\nburp version: %s\n"
                 "Python FUSE version: %s" %
-                (__version__, self._burp_version(), fuse.__version__))
+                (__version__, self.burp_version(), fuse.__version__))
 
-    def _burp_version(self):
+    def burp_version(self):
         '''
         return version string of burp,
         return None if not runnable or version cannot be parsed
         '''
-        if not self.burp_version:
+        if not self._burp_version:
             try:
                 cmd = [self.values.burp, '-c', self.values.conf, '-v']
                 p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
                 stdout, stderr = p.communicate()
                 match = re.search('burp-(.*)\n$', stdout)
                 if match:
-                    self.burp_version = '%s' % match.group(1)
+                    self._burp_version = '%s' % match.group(1)
             except:
                 #traceback.print_exc()
                 pass
-        return self.burp_version
+        return self._burp_version
 
 
 def main():
@@ -827,7 +827,7 @@ BurpFS: exposes the Burp backup storage as a Filesystem in USErspace
     server.parse(values=server, errex=1)
 
     if server.fuse_args.mount_expected():
-        if not server.parser._burp_version():
+        if not server.parser.burp_version():
             raise RuntimeError('cannot determine burp version - '
                                'is it installed?')
         else:
