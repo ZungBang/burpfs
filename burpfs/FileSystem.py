@@ -47,7 +47,7 @@ except ImportError:
     pass
 
 import fuse
-from fuse import Fuse
+from fuse import Fuse, FuseOptParse
 
 if not hasattr(fuse, '__version__'):
     raise RuntimeError(\
@@ -378,7 +378,7 @@ class FileSystem(Fuse):
         # by locking the configuration file
         # (note that this may not work over NFS)
         f = self._burp_flock()
-        cmd_prefix = [self.burp]
+        cmd_prefix = [self.burp, '-c', self.conf]
         if self.client:
             cmd_prefix += ['-C', self.client]
         cmd_prefix += ['-a', 'r', '-f', '-b', str(self.backup), '-d', self.cache_path, '-r']
@@ -428,7 +428,7 @@ class FileSystem(Fuse):
         '''
         get list of files in backup
         '''
-        cmd_prefix = [self.burp]
+        cmd_prefix = [self.burp, '-c', self.conf]
         if client:
             cmd_prefix += ['-C', client]
             
@@ -533,7 +533,7 @@ class FileSystem(Fuse):
         entry = (self._json_to_stat(item), target, under_root, hardlink)
         return head, tail, entry
         
-    def initialize(self, version):
+    def initialize(self):
         '''
         initialize file list
         '''
@@ -723,23 +723,37 @@ class FileSystem(Fuse):
             self.file.close()
 
 
-def _burp_version():
+class BurpFuseOptParse(FuseOptParse):
     '''
-    return version string of burp,
-    return None if not runnable or version cannot be parsed
+    We subclass FuseOptParse just so that we can honor the -o burp
+    command line option 
     '''
-    version = None
-    try:
-        cmd = ['burp', '-v']
-        p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        stdout, stderr = p.communicate()
-        match = re.search('burp-(.*)\n$', stdout)
-        if match:
-            version = '%s' % match.group(1)
-    except:
-        traceback.print_exc()
-        pass
-    return version
+    def __init__(self, *args, **kw):
+        self.burp_version = None
+        FuseOptParse.__init__(self, *args, **kw)
+
+    def get_version(self):
+        return ("BurpFS version: %s\nburp version: %s\n"
+                "Python FUSE version: %s" %
+                (__version__, self._burp_version(), fuse.__version__))
+
+    def _burp_version(self):
+        '''
+        return version string of burp,
+        return None if not runnable or version cannot be parsed
+        '''
+        if not self.burp_version:
+            try:
+                cmd = [self.values.burp, '-c', self.values.conf, '-v']
+                p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                stdout, stderr = p.communicate()
+                match = re.search('burp-(.*)\n$', stdout)
+                if match:
+                    self.burp_version = '%s' % match.group(1)
+            except:
+                #traceback.print_exc()
+                pass
+        return self.burp_version
 
 
 def main():
@@ -749,16 +763,12 @@ BurpFS: exposes the Burp backup storage as a Filesystem in USErspace
 
 """ + Fuse.fusage
 
-    burp_version = _burp_version()
-
     # force -o sync_read
     sys.argv.extend(['-o', 'sync_read'])
     
     server = FileSystem(
-        version=(
-            "BurpFS version: %s\nburp version: %s\n"
-            "Python FUSE version: %s" %
-            (__version__, burp_version, fuse.__version__)),
+        version=__version__,
+        parser_class=BurpFuseOptParse,
         usage=usage)
 
     server.multithreaded = True
@@ -806,14 +816,14 @@ BurpFS: exposes the Burp backup storage as a Filesystem in USErspace
     server.parse(values=server, errex=1)
 
     if server.fuse_args.mount_expected():
-        if not burp_version:
+        if not server.parser._burp_version():
             raise RuntimeError('cannot determine burp version - '
                                'is it installed?')
         else:
             # we initialize before main (i.e. not in fsinit) so that
             # any failure here aborts the mount
             try:
-                server.initialize(burp_version)
+                server.initialize()
             except:
                 server.shutdown()
                 raise
