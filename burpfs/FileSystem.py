@@ -319,7 +319,11 @@ class FileSystem(Fuse):
         regexs = []
         # build regex for burp
         item_path = path if self.dirs[head][tail].under_root else path[1:]
-        regexs.append(r'^' + re.escape(item_path) + r'$')
+        # it should be enough to just escape the item path (it works in a console
+        # terminal), but single quotes do not seem to play well with Python's Popen
+        # so we replace any escaped single quote with a dot (regex wildcard character)
+        # and run the risk that burp will extract more files than we intend
+        regexs.append(r'^' + re.escape(item_path).replace("\\'", ".") + r'$')
 
         # we need to extract the file
         # but, if it's a hard-link we must also make sure the link target
