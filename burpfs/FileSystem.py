@@ -130,29 +130,6 @@ def _decode_dict(data):
 
 class FileSystem(Fuse):
 
-    class _Entry:
-        def __init__(self,
-                     fs,
-                     path,
-                     stat=None,
-                     link_target=None,
-                     under_root=False,
-                     hardlink=False):
-            self.path = path
-            self.stat = stat if stat else FileSystem.null_stat
-            self.link_target = link_target
-            self.under_root = under_root
-            self.hardlink = hardlink
-            # zero negative timestamps
-            for a in ['st_atime', 'st_mtime', 'st_ctime']:
-                t = getattr(self.stat, a)
-                if t < 0:
-                    fs.logger.warning(
-                        '%s has negative timestamp %s=%d, will use 0' %
-                        (path, a, t))
-                    setattr(self.stat, a, 0)
-
-
     datetime_format = '%Y-%m-%d %H:%M:%S'
 
     null_stat = fuse.Stat(st_mode=stat.S_IFDIR | 0755,
@@ -175,18 +152,193 @@ class FileSystem(Fuse):
 
     xattr_fields = []
 
-    xattr_fields_root = ['conf',
+    xattr_fields_root = ['burp',
+                         'conf',
                          'client',
                          'backup',
-                         'datetime',
-                         'cache_prefix']
+                         'datetime']
 
-    xattr_fields_burp = ['path',
+    xattr_fields_burp = ['regex',
                          'state',
                          'pending']
 
-    burp_done = {'path': None,
+    xattr_fields_cache = ['prefix',
+                          'num_files',
+                          'max_num_files',
+                          'total_size',
+                          'max_total_size']
+
+    burp_done = {'regex': None,
                  'state': 'idle'}
+
+    class _Entry:
+        def __init__(self,
+                     fs,
+                     path,
+                     stat=None,
+                     link_target=None,
+                     under_root=False,
+                     hardlink=False):
+            self.path = path
+            self.stat = stat if stat else FileSystem.null_stat
+            self.link_target = link_target
+            self.under_root = under_root
+            self.hardlink = hardlink
+            self.refcount = 0
+            self.queued_for_removal = False
+            # zero negative timestamps
+            for a in ['st_atime', 'st_mtime', 'st_ctime']:
+                t = getattr(self.stat, a)
+                if t < 0:
+                    fs.logger.warning(
+                        '%s has negative timestamp %s=%d, will use 0' %
+                        (path, a, t))
+                    setattr(self.stat, a, 0)
+
+
+    class _Cache:
+        '''
+        Implementation of a file cache with LRU removal policy
+
+        Files are restored to the cache when first opened for reading,
+        and we impose a "soft" limit on both the number of cached
+        files and their total size.
+
+        By "soft" we mean that we allow files to be opened even if the
+        cache limits have been exceeded, and we only attempt to impose
+        the limits by removing closed files from the cache.
+        '''
+        def __init__(self, fs):
+            self.fs = fs
+            self.num_files = 0
+            self.max_num_files = int(fs.cache_num_files)
+            self.total_size = 0
+            self.max_total_size = int(fs.cache_total_size) * 1024 * 1024
+            self.queue = []
+            self.prefix = tempfile.mkdtemp(prefix='burpfs-')
+            self.path = os.path.normpath(self.prefix + '/files')
+            makedirs(self.path)
+
+        def __del__(self):
+            self.fs.logger.debug('removing cache directory: %s' %
+                                 self.prefix)
+            shutil.rmtree(self.prefix, ignore_errors=True)
+            
+        def find(self, path):
+            '''
+            return path in cache corresponding to input path and boolean
+            that's true if the path was found in cache
+            may return up to two paths in case path is a hard link
+            '''
+            realpath = os.path.normpath(self.path + '/' + path)
+            head, tail = self.fs._split(path)
+            # sanity check: path should not be a directory
+            if tail == '':
+                raise RuntimeError('trying to extract a directory %s' % path)
+            # check that path exists in file list
+            if head not in self.fs.dirs or tail not in self.fs.dirs[head]:
+                return None, None, False
+            # return if file has already been extracted
+            bs = self.fs.getattr(path)
+            if os.path.exists(realpath) or os.path.lexists(realpath):
+                # make sure that stat info of realpath matches path
+                s = os.lstat(realpath)
+                conds = [getattr(s, attr) == getattr(bs, attr)
+                         for attr in ['st_mode',
+                                      'st_uid',
+                                      'st_gid',
+                                      'st_size',
+                                      'st_mtime']]
+                if all(conds):
+                    return [realpath], None, True
+
+            realpaths = [realpath]
+            regexs = []
+            # build regex for burp
+            item_path = path if self.fs.dirs[head][tail].under_root else path[1:]
+            # it should be enough to just escape the item path (it works in a console
+            # terminal), but single quotes do not seem to play well with Python's Popen
+            # so we replace any escaped single quote with a dot (regex wildcard character)
+            # and run the risk that burp will extract more files than we intend
+            regexs.append(r'^' + re.escape(item_path).replace("\\'", ".") + r'$')
+
+            # we need to extract the file
+            # but, if it's a hard-link we must also make sure the link target
+            # exists or is extracted before
+            if self.fs.dirs[head][tail].hardlink:
+                link_path = self.fs.dirs[head][tail].link_target
+                link_realpaths, link_regexs, link_found = self.find(link_path)
+                if not link_found and link_regexs:
+                    realpaths = link_realpaths + realpaths
+                    regexs = link_regexs + regexs
+
+            return realpaths, regexs, False
+
+        def open(self, path):
+            '''
+            update file and cache reference counts and sizes
+            '''
+            head, tail = self.fs._split(path)
+            self.fs.dirs[head][tail].refcount += 1
+            # has this file just been extracted?
+            if (self.fs.dirs[head][tail].refcount == 1 and
+                not self.fs.dirs[head][tail].queued_for_removal):
+                # yes: update cache
+                self.num_files += 1
+                self.total_size += self.fs.dirs[head][tail].stat.st_size
+            # remove item from queue
+            head_tail_pair = (head, tail)
+            try:
+                self.queue.remove(head_tail_pair)
+            except ValueError:
+                pass
+            self.fs.dirs[head][tail].queued_for_removal = False
+
+
+        def close(self, path):
+            '''
+            update files in cache and maybe remove least recently used
+            files from cache if cache limits on number of files and/or
+            total size have been exceeded
+            '''
+            self.fs._extract_lock.acquire()
+            head, tail = self.fs._split(path)
+            self.fs.dirs[head][tail].refcount -= 1
+            assert(self.fs.dirs[head][tail].refcount >= 0)
+            # are there any more references to this file?
+            if self.fs.dirs[head][tail].refcount == 0:
+                # ... no: add closed file to LRU queue
+                head_tail_pair = (head, tail)
+                # file may already be in the removal queue, so
+                # we first attempt to remove it from the queue
+                try:
+                    self.queue.remove(head_tail_pair)
+                except ValueError:
+                    pass
+                self.queue.append(head_tail_pair)
+                self.fs.dirs[head][tail].queued_for_removal = True
+                # evict closed files from cache until cache limits are met
+                while (self.queue and
+                       (self.num_files > self.max_num_files or
+                        self.total_size > self.max_total_size)):
+                    rm_head, rm_tail = self.queue.pop(0)
+                    assert(self.fs.dirs[rm_head][rm_tail].queued_for_removal)
+                    self.fs.dirs[rm_head][rm_tail].queued_for_removal = False
+                    # can we evict this file from the cache?
+                    if self.fs.dirs[rm_head][rm_tail].refcount == 0:
+                        # ... yes: delete the file from disk
+                        realpath = os.path.normpath('/'.join([self.path, rm_head, rm_tail]))
+                        try:
+                            os.remove(realpath)
+                        except:
+                            pass
+                        # we update counters even if we failed to remove the file
+                        self.num_files -= 1
+                        self.total_size -= self.fs.dirs[rm_head][rm_tail].stat.st_size
+            assert(self.num_files >= 0)
+            assert(self.total_size >= 0)
+            self.fs._extract_lock.release()
+
 
     def __init__(self, *args, **kw):
         '''
@@ -205,7 +357,9 @@ class FileSystem(Fuse):
         self.client = ''
         self.backup = None
         self.datetime = None
-        self.cache_prefix = None
+        self.cache = None
+        self.cache_num_files = 768
+        self.cache_total_size = 100
         self.move_root = False
         self.use_ino = False
         self.max_ino = 0
@@ -255,7 +409,7 @@ class FileSystem(Fuse):
             subdir = '%s%s/' % (head, tail)
             if subdir in self.dirs:
                 self._update_inodes(subdir)
-
+    
     def _extract(self, path_list):
         '''
         extract path list from storage, returns path list of extracted files
@@ -271,10 +425,11 @@ class FileSystem(Fuse):
         realpath_list = []
 
         for path in path_list:
-            realpaths, path_regexs, found = self._find_in_cache(path)
+            realpaths, path_regexs, found = self.cache.find(path)
             if not realpaths:
                 continue
             realpath_list.extend(realpaths)
+            self.cache.open(path)
             if not found:
                 items.extend(path_regexs)
 
@@ -285,57 +440,6 @@ class FileSystem(Fuse):
         self._burp_increment_counter('pending', -nitems)
 
         return realpath_list
-
-    def _find_in_cache(self, path):
-        '''
-        return path in cache corresponding to input path and boolean
-        that's true if the path was found in cache
-        may return up to two paths in case path is a hard link
-        '''
-        realpath = os.path.normpath(self.cache_path + '/' + path)
-        self.logger.debug('realpath=%s' % realpath)
-        head, tail = self._split(path)
-        # sanity check: path should not be a directory
-        if tail == '':
-            raise RuntimeError('trying to extract a directory %s' % path)
-        # check that path exists in file list
-        if head not in self.dirs or tail not in self.dirs[head]:
-            return None, None, False
-        # return if file has already been extracted
-        bs = self.getattr(path)
-        if os.path.exists(realpath) or os.path.lexists(realpath):
-            # make sure that stat info of realpath matches path
-            s = os.lstat(realpath)
-            conds = [getattr(s, attr) == getattr(bs, attr)
-                     for attr in ['st_mode',
-                                  'st_uid',
-                                  'st_gid',
-                                  'st_size',
-                                  'st_mtime']]
-            if all(conds):
-                return [realpath], None, True
-
-        realpaths = [realpath]
-        regexs = []
-        # build regex for burp
-        item_path = path if self.dirs[head][tail].under_root else path[1:]
-        # it should be enough to just escape the item path (it works in a console
-        # terminal), but single quotes do not seem to play well with Python's Popen
-        # so we replace any escaped single quote with a dot (regex wildcard character)
-        # and run the risk that burp will extract more files than we intend
-        regexs.append(r'^' + re.escape(item_path).replace("\\'", ".") + r'$')
-
-        # we need to extract the file
-        # but, if it's a hard-link we must also make sure the link target
-        # exists or is extracted before
-        if self.dirs[head][tail].hardlink:
-            link_path = self.dirs[head][tail].link_target
-            link_realpaths, link_regexs, link_found = self._find_in_cache(link_path)
-            if not link_found and link_regexs:
-                realpaths = link_realpaths + realpaths
-                regexs = link_regexs + regexs
-                
-        return realpaths, regexs, False
 
     def _burp_set_status(self, status):
         '''
@@ -401,11 +505,11 @@ class FileSystem(Fuse):
         cmd_prefix = [self.burp, '-c', self.conf]
         if self.client:
             cmd_prefix += ['-C', self.client]
-        cmd_prefix += ['-a', 'r', '-f', '-b', str(self.backup), '-d', self.cache_path, '-r']
+        cmd_prefix += ['-a', 'r', '-f', '-b', str(self.backup), '-d', self.cache.path, '-r']
         for item in items:
             cmd = cmd_prefix + [item]
             self.logger.debug('$ %s' % ' '.join(cmd))
-            self._burp_set_status({'path': item,
+            self._burp_set_status({'regex': item,
                                    'state': 'run'})
             p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             stdout, stderr = p.communicate()
@@ -566,9 +670,7 @@ class FileSystem(Fuse):
         self._setup_logging()
 
         self.logger.info('Populating file system ... ')
-        self.cache_prefix = tempfile.mkdtemp(prefix='burpfs-')
-        self.cache_path = os.path.normpath(self.cache_prefix + '/files')
-        makedirs(self.cache_path)
+        self.cache = FileSystem._Cache(self)
 
         # test access to burp conf file
         open(self.conf, 'r').close()
@@ -608,7 +710,7 @@ class FileSystem(Fuse):
         if self.use_ino:
             self._update_inodes('/')
 
-        self.logger.debug('Cache directory is: %s' % self.cache_prefix)
+        self.logger.debug('Cache directory is: %s' % self.cache.prefix)
         self.logger.info('BurpFS ready (%d items).' % len(files))
 
         self._initialized = True
@@ -617,10 +719,8 @@ class FileSystem(Fuse):
         '''
         remove cache directory if required
         '''
-        if self.cache_prefix:
-            self.logger.info('removing cache directory: %s' %
-                             self.cache_prefix)
-            shutil.rmtree(self.cache_prefix, ignore_errors=True)
+        if self.cache:
+            del self.cache
 
     def setxattr(self, path, name, value, flags):
         '''
@@ -632,7 +732,7 @@ class FileSystem(Fuse):
         '''
         get value of extended attribute
         burpfs exposes some filesystem attributes for the root directory
-        (e.g. backup number, cache_prefix - see FileSystem.xattr_fields_root)
+        (e.g. backup number, cache prefix - see FileSystem.xattr_fields_root)
         and may also expose several other attributes for each file/directory
         in the future (see FileSystem.xattr_fields)
         '''
@@ -646,6 +746,10 @@ class FileSystem(Fuse):
                 n = n.replace('burp.', '')
                 if n in FileSystem.xattr_fields_burp:
                     val = str(self._burp_get_status()[n])
+            elif n.startswith('cache.'):
+                n = n.replace('cache.', '')
+                if n in FileSystem.xattr_fields_cache:
+                    val = str(getattr(self.cache, n))
         if (not val and head in self.dirs and tail in self.dirs[head] and
             n in FileSystem.xattr_fields):
             # place holder in case we add xattrs
@@ -669,6 +773,8 @@ class FileSystem(Fuse):
                        a for a in FileSystem.xattr_fields_root]
             xattrs += [FileSystem.xattr_prefix + 'burp.' +
                        a for a in FileSystem.xattr_fields_burp]
+            xattrs += [FileSystem.xattr_prefix + 'cache.' +
+                       a for a in FileSystem.xattr_fields_cache]
         if head in self.dirs and tail in self.dirs[head]:
             xattrs += [FileSystem.xattr_prefix +
                        a for a in FileSystem.xattr_fields]
@@ -736,6 +842,7 @@ class FileSystem(Fuse):
 
         def release(self, flags):
             self.file.close()
+            self.fs.cache.close(self.path)
 
 
 class BurpFuseOptParse(FuseOptParse):
@@ -812,6 +919,16 @@ BurpFS: exposes the Burp backup storage as a Filesystem in USErspace
                              metavar="'YYYY-MM-DD hh:mm:ss'",
                              default=server.datetime,
                              help="backup snapshot date/time [default: now]")
+    server.parser.add_option(mountopt="cache_num_files",
+                             metavar="N",
+                             default=server.cache_num_files,
+                             help=("maximal number of files in cache "
+                                   "[default: %default]"))
+    server.parser.add_option(mountopt="cache_total_size",
+                             metavar="MB",
+                             default=server.cache_total_size,
+                             help=("maximal total size (MB) of files in cache "
+                                   "[default: %default]"))
     server.parser.add_option(mountopt="move_root",
                              action="store_true",
                              default=server.move_root,
