@@ -97,7 +97,7 @@ Changelog
 ---------
 **Version 0.2.0 (2013-01-13)**
 
-- implemented LRU (Least Rescently Used) cache policy
+- implemented LRU (Least Recently Used) cache policy
 - workaround: access to files with single quotes in their name
 - provide options to specify the path to the Burp executable
   ``-o burp`` and a path to the Burp client configuration file
