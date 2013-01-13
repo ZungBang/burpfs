@@ -95,6 +95,14 @@ ways in this case.
 
 Changelog
 ---------
+**Version 0.2.0 (2013-01-13)**
+
+- implemented LRU (Least Rescently Used) cache policy
+- workaround: access to files with single quotes in their name
+- provide options to specify the path to the Burp executable
+  ``-o burp`` and a path to the Burp client configuration file
+  ``-o conf``
+
 **Version 0.1.0 (2013-01-03)**
 
 - switched to burp JSON long listing format (requires Burp 1.3.22 and
