@@ -95,6 +95,9 @@ ways in this case.
 
 Changelog
 ---------
+**Version 0.2.1 (2013-01-13)**
+- fixed **BurpFS** version
+  
 **Version 0.2.0 (2013-01-13)**
 
 - implemented LRU (Least Recently Used) cache policy
