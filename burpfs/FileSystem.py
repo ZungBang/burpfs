@@ -180,7 +180,7 @@ class FileSystem(Fuse):
                      under_root=False,
                      hardlink=False):
             self.path = path
-            self.stat = stat if stat else FileSystem.null_stat
+            self.stat = stat if stat else copy.deepcopy(FileSystem.null_stat)
             self.link_target = link_target
             self.under_root = under_root
             self.hardlink = hardlink
@@ -693,15 +693,8 @@ class FileSystem(Fuse):
             if self.use_ino:
                 if entry.stat.st_ino > self.max_ino:
                     self.max_ino = entry.stat.st_ino
-            # new directory
-            if head not in self.dirs:
-                self.dirs[head] = {}
-            # is entry a directory itself?
-            if (stat.S_ISDIR(entry.stat.st_mode) and
-                path + '/' not in self.dirs):
-                self.dirs[path + '/'] = {}
             # add parent directories
-            self._add_parent_dirs(head)
+            self._add_parent_dirs((path if stat.S_ISDIR(entry.stat.st_mode) else head) + '/.')
             # and finally
             self.dirs[head][tail] = entry
         
