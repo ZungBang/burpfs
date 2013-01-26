@@ -514,8 +514,6 @@ class FileSystem(Fuse):
             p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             stdout, stderr = p.communicate()
             self.logger.debug('%s%s' % (stdout, stderr))
-            # wait a bit before next restore
-            time.sleep(0.01)
         self._burp_set_status(FileSystem.burp_done)
         # unlock the configuration file
         self._burp_funlock(f)
