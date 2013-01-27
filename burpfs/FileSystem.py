@@ -525,7 +525,7 @@ class FileSystem(Fuse):
         # log messages are sent to both console and syslog
         # use -o logging=level to set the log level
         # use -o syslog to enable logging to syslog
-        self.logger = logging.getLogger('Burpfs')
+        self.logger = logging.getLogger('BurpFS')
         self.loglevel = LOGGING_LEVELS.get(self.logging, logging.NOTSET)
         self.logger.setLevel(self.loglevel)
         h = logging.StreamHandler()
@@ -538,7 +538,7 @@ class FileSystem(Fuse):
                 h = logging.handlers.SysLogHandler('/dev/log')
                 h.setLevel(self.loglevel)
                 formatter = logging.Formatter(
-                    "%(name)s: %(levelname)-8s - %(message)s")
+                    "%(name)s[%(process)d]: %(levelname)-8s - %(message)s")
                 h.setFormatter(formatter)
                 self.logger.addHandler(h)
             except:
