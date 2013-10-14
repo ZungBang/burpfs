@@ -231,6 +231,8 @@ class FileSystem(Fuse):
             may return up to two paths in case path is a hard link
             '''
             realpath = os.path.normpath(self.path + '/' + path)
+            # handle filenames containing newlines (WTF?)
+            realpath = realpath.replace('\n', '\r')
             head, tail = self.fs._split(path)
             # sanity check: path should not be a directory
             if tail == '':
@@ -256,11 +258,12 @@ class FileSystem(Fuse):
             regexs = []
             # build regex for burp
             item_path = path if self.fs.dirs[head][tail].under_root else path[1:]
-            # it should be enough to just escape the item path (it works in a console
-            # terminal), but single quotes do not seem to play well with Python's Popen
-            # so we replace any escaped single quote with a dot (regex wildcard character)
-            # and run the risk that burp will extract more files than we intend
-            regexs.append(r'^' + re.escape(item_path).replace("\\'", ".") + r'$')
+            # we replace single quotes and literal control characters
+            # with a dot (regex wildcard character), and thus run the
+            # risk that burp will extract more files than we intend,
+            # because these characters do not seem to play well with
+            # Python's Popen
+            regexs.append(r'^' + re.sub(r"\\['\x00-\x1f]", ".", re.escape(item_path)) + r'$')
 
             # we need to extract the file
             # but, if it's a hard-link we must also make sure the link target
@@ -613,7 +616,7 @@ class FileSystem(Fuse):
             [line for line in stdout.splitlines()
              if not re.match(('^([0-9]{4})-([0-9]{2})-([0-9]{2}) ' +
                               '([0-9]{2}):([0-9]{2}):([0-9]{2}):.*'), line)])
-        backup = json.loads(json_string, object_hook=_decode_dict)
+        backup = json.loads(json_string, object_hook=_decode_dict, strict=False)
         files = backup['items']
         return files, ibackup, backup_date
 
