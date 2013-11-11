@@ -18,7 +18,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-__version__ = '0.2.1'
+__version__ = '0.2.2'
 
 import os
 import sys
@@ -617,7 +617,10 @@ class FileSystem(Fuse):
              if not re.match(('^([0-9]{4})-([0-9]{2})-([0-9]{2}) ' +
                               '([0-9]{2}):([0-9]{2}):([0-9]{2}):.*'), line)])
         backup = json.loads(json_string, object_hook=_decode_dict, strict=False)
-        files = backup['items']
+        if 'backups' in backup:
+            files = backup['backups'][0]['items']
+        else:
+            files = backup['items']
         return files, ibackup, backup_date
 
 
@@ -652,8 +655,8 @@ class FileSystem(Fuse):
         else:
             under_root = True
         head, tail = self._split(path)
-        target = item['link'] if item['type'] in ['l', 'L'] else None
-        hardlink = item['type'] == 'L'
+        target = item['link'] if len(item['link']) > 0 else None
+        hardlink = (target is not None) and (not stat.S_ISLNK(item['st_mode']))
         entry = FileSystem._Entry(self,
                                   path,
                                   stat=self._json_to_stat(item),
