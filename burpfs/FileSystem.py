@@ -208,6 +208,9 @@ class FileSystem(Fuse):
         cache limits have been exceeded, and we only attempt to impose
         the limits by removing closed files from the cache.
         '''
+
+        path_regex_size_limit = 255
+
         def __init__(self, fs):
             self.fs = fs
             self.num_files = 0
@@ -263,7 +266,16 @@ class FileSystem(Fuse):
             # risk that burp will extract more files than we intend,
             # because these characters do not seem to play well with
             # Python's Popen
-            regexs.append(r'^' + re.sub(r"\\['\x00-\x1f]", ".", re.escape(item_path)) + r'$')
+            r = re.sub(r"\\['\x00-\x1f]", ".", re.escape(item_path))
+            # we also make sure that the resulting regex isn't longer
+            # than 255 characters by replacing its tail with r'.*'
+            if len(r) > self.path_regex_size_limit:
+                l = self.path_regex_size_limit - 4
+                while (l > 0 and r[l - 1] == '\\'):
+                    l -= 1
+                r = r[0:l] + r'.*'
+            # the actual regex
+            regexs.append(r'^' + r + r'$')
 
             # we need to extract the file
             # but, if it's a hard-link we must also make sure the link target
