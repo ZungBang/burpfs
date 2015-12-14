@@ -372,6 +372,7 @@ class FileSystem(Fuse):
         self.client = ''
         self.backup = None
         self.datetime = None
+        self.diff = False
         self.cache = None
         self.cache_num_files = 768
         self.cache_total_size = 100
@@ -633,7 +634,12 @@ class FileSystem(Fuse):
             files = backup['backups'][0]['items']
         else:
             files = backup['items']
-        return files, ibackup, backup_date
+
+        diff_epoch = 0
+        if nbackup > 0:
+            diff_epoch = time.mktime(backup_dates[nbackup - 1].timetuple())
+
+        return files, ibackup, backup_date, diff_epoch
 
 
     def _json_to_stat(self, item):
@@ -691,9 +697,9 @@ class FileSystem(Fuse):
         open(self.conf, 'r').close()
 
         # get list of files in backup
-        files, backup, timespec = self._list_files(self.client,
-                                                   self.backup,
-                                                   self.datetime)
+        files, backup, timespec, diff_epoch = self._list_files(self.client,
+                                                               self.backup,
+                                                               self.datetime)
         # validated values
         self.backup = backup
         self.datetime = timespec
@@ -702,6 +708,7 @@ class FileSystem(Fuse):
         self.use_ino = 'use_ino' in self.fuse_args.optlist
         
         # build dirs data structure
+        num_entries = 0
         for file in files:
             head, tail, entry = self._create_file_entry(file)
             path = head + tail
@@ -713,20 +720,31 @@ class FileSystem(Fuse):
             if head not in self.dirs:
                 self.dirs[head] = {}
             # is entry a directory itself?
-            if (stat.S_ISDIR(entry.stat.st_mode) and
+            isdirectory = stat.S_ISDIR(entry.stat.st_mode)
+            if (isdirectory and
                 path + '/' not in self.dirs):
                 self.dirs[path + '/'] = {}
             # add parent directories
             self._add_parent_dirs(head)
+            # maybe skip unmodified files
+            if (self.diff and
+                not isdirectory and
+                entry.stat.st_mtime < diff_epoch):
+                continue
             # and finally
             self.dirs[head][tail] = entry
+            if entry.stat.st_mtime >= diff_epoch:
+                num_entries += 1
         
         # fix st_ino
         if self.use_ino:
             self._update_inodes('/')
 
         self.logger.debug('Cache directory is: %s' % self.cache.prefix)
-        self.logger.info('BurpFS ready (%d items).' % len(files))
+        if not self.diff:
+            self.logger.info('BurpFS ready (%d items).' % len(files))
+        else:
+            self.logger.info('BurpFS ready (%d modified items out of %d).' % (num_entries, len(files)))
 
         self._initialized = True
 
@@ -934,6 +952,11 @@ BurpFS: exposes the Burp backup storage as a Filesystem in USErspace
                              metavar="'YYYY-MM-DD hh:mm:ss'",
                              default=server.datetime,
                              help="backup snapshot date/time [default: now]")
+    server.parser.add_option(mountopt="diff",
+                             action="store_true",
+                             default=server.diff,
+                             help=("populate file system only with "
+                                   "modified/new files [default: %default]"))
     server.parser.add_option(mountopt="cache_num_files",
                              metavar="N",
                              default=server.cache_num_files,
