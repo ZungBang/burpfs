@@ -18,7 +18,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-__version__ = '0.2.3'
+__version__ = '0.2.4'
 
 import os
 import sys
@@ -989,6 +989,8 @@ BurpFS: exposes the Burp backup storage as a Filesystem in USErspace
         if not server.parser.burp_version():
             raise RuntimeError('cannot determine burp version - '
                                'is it installed?')
+        elif server.parser.burp_version() >= '2':
+            raise RuntimeError('burp version 2.x is not supported yet')
         else:
             # we initialize before main (i.e. not in fsinit) so that
             # any failure here aborts the mount
