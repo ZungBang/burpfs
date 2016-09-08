@@ -62,6 +62,13 @@ client must be configured as a ``restore_client`` for ``dumbo`` at the
 
         burpfs -o backup=50,client=dumbo /path/to/mount/point
 
+Mount the only the _modified_ contents of the backup #50 for client
+``dumbo``, compared with the backup preceding it:
+
+::
+
+        burpfs -o diff,backup=50,client=dumbo /path/to/mount/point
+
 Mount the contents of the backup job before the specified date/time:
 
 ::
@@ -81,6 +88,9 @@ Limitations
 **BurpFS** is in its rough-around-the-edges alpha stage. Expect
 breakage. Please report Bugs_.
 
+You must set the client machine that you mount the filesystem on as a
+``restore-client`` at the server side.
+
 If you intend to mount a Windows backup file set with **BurpFS**,
 you'll need to set ``split_vss=1`` in the Windows client configuration
 file, or else all files will contain extra bytes (the VSS
@@ -92,10 +102,32 @@ backup being represented from being deleted at the server side while
 the filesystem is mounted. **BurpFS** is liable to fail in interesting
 ways in this case.
 
+With Burp 2.x **BurpFS** uses the burp monitor to browse the backup
+manifest, so you need to be able to run ``burp -a m`` on the same
+machine you try to mount the filesystem on.
+
 
 Changelog
 ---------
+**Version 0.3.0 (2016-09-08)**
+
+- added support for Burp 2.x
+
+**Version 0.2.4 (2016-09-05)**
+
+- issue error when trying to mount Burp 2.x backup
+
+**Version 0.2.3 (2015-12-14)**
+
+- added new diff mode to mount modified/added files only
+- fixed restore of files with very long path string
+  
+**Version 0.2.2 (2013-11-11)**
+
+- added support for Burp 1.4.x
+
 **Version 0.2.1 (2013-01-13)**
+
 - fixed **BurpFS** version
   
 **Version 0.2.0 (2013-01-13)**
