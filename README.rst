@@ -9,7 +9,7 @@ USErspace (FUSE_).
 .. _Burp: http://burp.grke.net/
 .. _FUSE: http://fuse.sourceforge.net/
 
-Copyright |(C)| 2012, 2013 Avi Rozen <avi.rozen@gmail.com>
+Copyright |(C)| 2012-2016 Avi Rozen <avi.rozen@gmail.com>
 
 .. contents:: 
 
