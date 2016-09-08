@@ -18,7 +18,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-__version__ = '0.2.4'
+__version__ = '0.3.0'
 
 import os
 import sys
@@ -568,6 +568,14 @@ class FileSystem(Fuse):
         cmd_prefix = [self.burp, '-c', self.conf]
         if client:
             cmd_prefix += ['-C', client]
+        elif self.parser.burp_version() >= '2':
+            # deduce client name
+            with open(self.conf, 'r') as conf:
+                for line in conf:
+                    match = re.search('^\s*cname\s*=\s*([^\s]*)', line)
+                    if match:
+                        client = '%s' % match.group(1)
+                        break
             
         cmd = cmd_prefix + ['-a', 'l']
         self.logger.debug('Getting list of backups with: %s' % ' '.join(cmd))
@@ -620,19 +628,43 @@ class FileSystem(Fuse):
 
         backup_date = datetime.strftime(backup_dates[nbackup], FileSystem.datetime_format)
         self.logger.info('Backup: %07d %s' % (ibackup, backup_date))
-        
-        cmd = cmd_prefix + ['-b', '%d' % ibackup, '-a', 'L', '-j']
-        self.logger.debug('Getting list of files in backup with: %s' % ' '.join(cmd))
-        p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        stdout, stderr = p.communicate()
-        json_string = '\n'.join(
-            [line for line in stdout.splitlines()
-             if not re.match(('^([0-9]{4})-([0-9]{2})-([0-9]{2}) ' +
-                              '([0-9]{2}):([0-9]{2}):([0-9]{2}):.*'), line)])
+
+        if self.parser.burp_version() >= '2':
+            cmd = cmd_prefix + ['-a', 'm']
+            self.logger.debug('Querying burp monitor for list of files in backup with: %s' % ' '.join(cmd))
+            p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+            inp = 'j:pretty-print-off'
+            self.logger.debug(inp)
+            p.stdin.write('%s\n' % inp)
+            ready = False
+            while not ready:
+                line = p.stdout.readline().rstrip('\n')
+                self.logger.debug(line)
+                ready = 'pretty print off' in line.lower()
+            inp = 'c:%s:b:%d:p:*' % (client, ibackup)
+            self.logger.debug(inp)
+            p.stdin.write('%s\n' % inp)
+            json_string = p.stdout.readline()
+            p.stdin.close()
+        else:
+            cmd = cmd_prefix + ['-b', '%d' % ibackup, '-a', 'L', '-j']
+            self.logger.debug('Getting list of files in backup with: %s' % ' '.join(cmd))
+            p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            stdout, stderr = p.communicate()
+            json_string = '\n'.join(
+                [line for line in stdout.splitlines()
+                 if not re.match(('^([0-9]{4})-([0-9]{2})-([0-9]{2}) ' +
+                                  '([0-9]{2}):([0-9]{2}):([0-9]{2}):.*'), line)])
+
         backup = json.loads(json_string, object_hook=_decode_dict, strict=False)
-        if 'backups' in backup:
+        if self.parser.burp_version() >= '2':
+            # burp 2.x.x
+            files = backup['clients'][0]['backups'][0]['browse']['entries']
+        elif 'backups' in backup:
+            # burp 1.4.x
             files = backup['backups'][0]['items']
         else:
+            # burp 1.3.x
             files = backup['items']
 
         diff_epoch = 0
@@ -646,16 +678,16 @@ class FileSystem(Fuse):
         '''
         convert JSON file entry tokens into file stat structure
         '''
-        st = fuse.Stat(st_mode=item['st_mode'],
-                       st_ino=item['st_ino'],
-                       st_dev=item['st_dev'],
-                       st_nlink=item['st_nlink'],
-                       st_uid=item['st_uid'],
-                       st_gid=item['st_gid'],
-                       st_size=item['st_size'],
-                       st_atime=item['st_atime'],
-                       st_mtime=item['st_mtime'],
-                       st_ctime=item['st_ctime'],
+        st = fuse.Stat(st_mode=item[self.stat_field_prefix + 'mode'],
+                       st_ino=item[self.stat_field_prefix + 'ino'],
+                       st_dev=item[self.stat_field_prefix + 'dev'],
+                       st_nlink=item[self.stat_field_prefix + 'nlink'],
+                       st_uid=item[self.stat_field_prefix + 'uid'],
+                       st_gid=item[self.stat_field_prefix + 'gid'],
+                       st_size=item[self.stat_field_prefix + 'size'],
+                       st_atime=item[self.stat_field_prefix + 'atime'],
+                       st_mtime=item[self.stat_field_prefix + 'mtime'],
+                       st_ctime=item[self.stat_field_prefix + 'ctime'],
                        st_blksize=0,
                        st_rdev=0)
         return st
@@ -674,7 +706,7 @@ class FileSystem(Fuse):
             under_root = True
         head, tail = self._split(path)
         target = item['link'] if len(item['link']) > 0 else None
-        hardlink = (target is not None) and (not stat.S_ISLNK(item['st_mode']))
+        hardlink = (target is not None) and (not stat.S_ISLNK(item[self.stat_field_prefix + 'mode']))
         entry = FileSystem._Entry(self,
                                   path,
                                   stat=self._json_to_stat(item),
@@ -692,6 +724,7 @@ class FileSystem(Fuse):
 
         self.logger.info('Populating file system ... ')
         self.cache = FileSystem._Cache(self)
+        self.stat_field_prefix = '' if self.parser.burp_version() >= '2' else 'st_'
 
         # test access to burp conf file
         open(self.conf, 'r').close()
@@ -989,8 +1022,6 @@ BurpFS: exposes the Burp backup storage as a Filesystem in USErspace
         if not server.parser.burp_version():
             raise RuntimeError('cannot determine burp version - '
                                'is it installed?')
-        elif server.parser.burp_version() >= '2':
-            raise RuntimeError('burp version 2.x is not supported yet')
         else:
             # we initialize before main (i.e. not in fsinit) so that
             # any failure here aborts the mount
