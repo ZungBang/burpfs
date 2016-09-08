@@ -636,7 +636,7 @@ class FileSystem(Fuse):
             files = backup['items']
 
         diff_epoch = 0
-        if nbackup > 0:
+        if nbackup != 0 and len(backup_dates) > 1:
             diff_epoch = time.mktime(backup_dates[nbackup - 1].timetuple())
 
         return files, ibackup, backup_date, diff_epoch
