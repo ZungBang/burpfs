@@ -637,10 +637,12 @@ class FileSystem(Fuse):
             self.logger.debug(inp)
             p.stdin.write('%s\n' % inp)
             ready = False
-            while not ready:
+            while p.poll() is None and not ready:
                 line = p.stdout.readline().rstrip('\n')
                 self.logger.debug(line)
                 ready = 'pretty print off' in line.lower()
+            if not ready:
+                raise RuntimeError('burp monitor terminated - please verify that the server is configured to allow remote status monitor (hint: "status_address=::")') 
             inp = 'c:%s:b:%d:p:*' % (client, ibackup)
             self.logger.debug(inp)
             p.stdin.write('%s\n' % inp)
