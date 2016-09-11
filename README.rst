@@ -40,6 +40,13 @@ There's no official release at this point, so please clone the public
 
 **BurpFS** requires Burp 1.3.22 and up, Python_ 2.7 and Python FUSE_.
 
+You must set the client machine that you mount the filesystem on as a
+``restore-client`` at the server side.
+
+With Burp 2.x **BurpFS** uses the burp monitor to browse the backup
+manifest, so you need to be able to run ``burp -a m`` on the same
+machine you try to mount the filesystem on.
+
 .. _repository: https://github.com/ZungBang/burpfs.git
 .. _Python: http://www.python.org
 .. _FUSE: http://fuse.sourceforge.net/
@@ -88,23 +95,11 @@ Limitations
 **BurpFS** is in its rough-around-the-edges alpha stage. Expect
 breakage. Please report Bugs_.
 
-You must set the client machine that you mount the filesystem on as a
-``restore-client`` at the server side.
-
-If you intend to mount a Windows backup file set with **BurpFS**,
-you'll need to set ``split_vss=1`` in the Windows client configuration
-file, or else all files will contain extra bytes (the VSS
-header/footer).
-
 **BurpFS** queries the Burp server for the files list only once, as
 the the filesystem is initialized. There's nothing to prevent the
 backup being represented from being deleted at the server side while
 the filesystem is mounted. **BurpFS** is liable to fail in interesting
 ways in this case.
-
-With Burp 2.x **BurpFS** uses the burp monitor to browse the backup
-manifest, so you need to be able to run ``burp -a m`` on the same
-machine you try to mount the filesystem on.
 
 
 Changelog

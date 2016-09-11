@@ -34,6 +34,7 @@ import fcntl
 import time
 import re
 import json
+import struct
 from datetime import datetime
 from bisect import bisect_left, bisect_right
 
@@ -171,6 +172,10 @@ class FileSystem(Fuse):
     burp_done = {'regex': None,
                  'state': 'idle'}
 
+    vss_header_format = '<iiqi'
+    
+    vss_header_size = struct.calcsize(vss_header_format) #20
+
     class _Entry:
         def __init__(self,
                      fs,
@@ -186,6 +191,8 @@ class FileSystem(Fuse):
             self.hardlink = hardlink
             self.refcount = 0
             self.queued_for_removal = False
+            self.vss_overhead = 0
+            self.vss_offset = 0
             # zero negative timestamps
             for a in ['st_atime', 'st_mtime', 'st_ctime']:
                 t = getattr(self.stat, a)
@@ -252,9 +259,9 @@ class FileSystem(Fuse):
                          for attr in ['st_mode',
                                       'st_uid',
                                       'st_gid',
-                                      'st_size',
                                       'st_mtime']]
-                if all(conds):
+                if (all(conds) and
+                    s.st_size == bs.st_size + self.fs.dirs[head][tail].vss_overhead):
                     return [realpath], None, True
 
             realpaths = [realpath]
@@ -425,6 +432,50 @@ class FileSystem(Fuse):
             subdir = '%s%s/' % (head, tail)
             if subdir in self.dirs:
                 self._update_inodes(subdir)
+
+    def _vss_parse(self, realpath, path):
+        '''
+        parse vss headers of realpath, cache results, 
+        return base offset and size overhead
+        '''
+        head, tail = self._split(path)
+        if head not in self.dirs or tail not in self.dirs[head]:
+            return 0, 0
+        if (not self.dirs[head][tail].under_root and
+            self.dirs[head][tail].vss_overhead == 0 and 
+            self.dirs[head][tail].vss_offset == 0 and
+            os.path.exists(realpath)):
+            s = os.lstat(realpath)
+            bs = self.getattr(path)
+            if (s.st_size >= FileSystem.vss_header_size and
+                s.st_size > bs.st_size):
+                with open(realpath, 'rb') as f:
+                    offset = 0
+                    overhead = 0
+                    while True:
+                        vss_header = f.read(FileSystem.vss_header_size)
+                        if len(vss_header) < FileSystem.vss_header_size:
+                            break
+                        offset += FileSystem.vss_header_size
+                        overhead += FileSystem.vss_header_size
+                        (sid, sattr, ssize, sname_size) = struct.unpack(FileSystem.vss_header_format, vss_header)
+                        offset += sname_size
+                        overhead += sname_size
+                        if (self.dirs[head][tail].vss_offset == 0 and
+                            sid == 1 and
+                            ssize == bs.st_size):
+                            self.dirs[head][tail].vss_offset = offset
+                            overhead -= ssize
+                        offset += ssize
+                        overhead += ssize
+                        f.seek(offset)
+                    if self.dirs[head][tail].vss_offset > 0:
+                        if overhead + bs.st_size == s.st_size:
+                            self.dirs[head][tail].vss_overhead = overhead
+                        else:
+                            self.dirs[head][tail].vss_offset = 0
+        return self.dirs[head][tail].vss_offset, self.dirs[head][tail].vss_overhead
+
     
     def _extract(self, path_list):
         '''
@@ -898,6 +949,7 @@ class FileSystem(Fuse):
                 raise IOError(errno.EACCES, '')
             self.path = path
             self.realpath = fs._extract([path])[0]
+            self.vss_offset, self.vss_overhead = fs._vss_parse(self.realpath, path)
             self.file = os.fdopen(os.open(self.realpath, flags, *mode),
                                   flag2mode(flags))
             self.fd = self.file.fileno()
@@ -905,7 +957,7 @@ class FileSystem(Fuse):
             self.keep_cache = True
 
         def read(self, length, offset):
-            self.file.seek(offset)
+            self.file.seek(offset + self.vss_offset)
             return self.file.read(length)
 
         def release(self, flags):
