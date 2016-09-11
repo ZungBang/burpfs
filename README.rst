@@ -104,6 +104,10 @@ ways in this case.
 
 Changelog
 ---------
+**Version 0.3.1 (2016-09-11)**
+
+- auto strip VSS headers
+
 **Version 0.3.0 (2016-09-08)**
 
 - added support for Burp 2.x
