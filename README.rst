@@ -69,7 +69,7 @@ client must be configured as a ``restore_client`` for ``dumbo`` at the
 
         burpfs -o backup=50,client=dumbo /path/to/mount/point
 
-Mount the only the _modified_ contents of the backup #50 for client
+Mount the only the *modified* contents of the backup #50 for client
 ``dumbo``, compared with the backup preceding it:
 
 ::
@@ -104,6 +104,10 @@ ways in this case.
 
 Changelog
 ---------
+**Version 0.3.2 (2016-09-13)**
+
+- tweaked VSS headers parser
+
 **Version 0.3.1 (2016-09-11)**
 
 - auto strip VSS headers
