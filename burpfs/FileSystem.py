@@ -437,6 +437,9 @@ class FileSystem(Fuse):
         '''
         parse vss headers of realpath, cache results, 
         return base offset and size overhead
+
+        vss headers are win32 stream id structures
+        https://msdn.microsoft.com/en-us/library/windows/desktop/aa362667.aspx
         '''
         head, tail = self._split(path)
         if head not in self.dirs or tail not in self.dirs[head]:
@@ -449,6 +452,7 @@ class FileSystem(Fuse):
             bs = self.getattr(path)
             if (s.st_size >= FileSystem.vss_header_size and
                 s.st_size > bs.st_size):
+                self.logger.debug('parsing vss headers of "%s"' % path)
                 with open(realpath, 'rb') as f:
                     offset = 0
                     overhead = 0
@@ -459,20 +463,30 @@ class FileSystem(Fuse):
                         offset += FileSystem.vss_header_size
                         overhead += FileSystem.vss_header_size
                         (sid, sattr, ssize, sname_size) = struct.unpack(FileSystem.vss_header_format, vss_header)
+                        self.logger.debug('vss header at offset %d: id=%d attr=%d size=%d, name size=%d' %
+                                          (offset - FileSystem.vss_header_size, sid, sattr, ssize, sname_size))
                         offset += sname_size
                         overhead += sname_size
                         if (self.dirs[head][tail].vss_offset == 0 and
                             sid == 1 and
-                            ssize == bs.st_size):
+                            ssize == bs.st_size and
+                            offset + ssize <= s.st_size):
+                            self.logger.debug('setting offset of file data as %d' % offset)
                             self.dirs[head][tail].vss_offset = offset
                             overhead -= ssize
                         offset += ssize
                         overhead += ssize
+                        if offset <= 0 or offset > s.st_size:
+                            self.logger.debug('bad offset %d - bailing out' % offset)
+                            self.dirs[head][tail].vss_offset = 0
+                            break
                         f.seek(offset)
                     if self.dirs[head][tail].vss_offset > 0:
                         if overhead + bs.st_size == s.st_size:
+                            self.logger.debug('setting vss header size overhead as %d' % overhead)
                             self.dirs[head][tail].vss_overhead = overhead
                         else:
+                            self.logger.debug('bad overhead %d - offset set to 0' % overhead)
                             self.dirs[head][tail].vss_offset = 0
         return self.dirs[head][tail].vss_offset, self.dirs[head][tail].vss_overhead
 
