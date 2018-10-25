@@ -104,6 +104,10 @@ ways in this case.
 
 Changelog
 ---------
+**Version 0.3.3 (2018-10-25)**
+
+- workaround: access to files with back-quotes in their name
+
 **Version 0.3.2 (2016-09-13)**
 
 - tweaked VSS headers parser

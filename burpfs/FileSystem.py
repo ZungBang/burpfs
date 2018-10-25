@@ -1,7 +1,7 @@
 #! /usr/bin/env python
 
 # BurpFS - Burp Filesystem in USErspace
-# Copyright (C) 2012-2016 Avi Rozen <avi.rozen@gmail.com>
+# Copyright (C) 2012-2018 Avi Rozen <avi.rozen@gmail.com>
 #
 # This file is part of BurpFS.
 #
@@ -18,7 +18,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-__version__ = '0.3.2'
+__version__ = '0.3.3'
 
 import os
 import sys
@@ -268,12 +268,12 @@ class FileSystem(Fuse):
             regexs = []
             # build regex for burp
             item_path = path if self.fs.dirs[head][tail].under_root else path[1:]
-            # we replace single quotes and literal control characters
-            # with a dot (regex wildcard character), and thus run the
-            # risk that burp will extract more files than we intend,
-            # because these characters do not seem to play well with
-            # Python's Popen
-            r = re.sub(r"\\['\x00-\x1f]", ".", re.escape(item_path))
+            # we replace single quote/back-quote and literal control
+            # characters with a dot (regex wildcard character), and
+            # thus run the risk that burp will extract more files than
+            # we intend, because these characters do not seem to play
+            # well with Python's Popen
+            r = re.sub(r"\\['`\x00-\x1f]", ".", re.escape(item_path))
             # we also make sure that the resulting regex isn't longer
             # than 255 characters by replacing its tail with r'.*'
             if len(r) > self.path_regex_size_limit:
