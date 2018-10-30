@@ -78,7 +78,7 @@ def makedirs(path):
     '''
     try:
         os.makedirs(path)
-    except OSError, exc:
+    except OSError as exc:
         if exc.errno == errno.EEXIST:
             pass
         else:
@@ -116,7 +116,7 @@ def _decode_list(data):
 
 def _decode_dict(data):
     rv = {}
-    for key, value in data.iteritems():
+    for key, value in data.items():
         if isinstance(key, unicode):
             key = key.encode('utf-8')
         if isinstance(value, unicode):
@@ -133,7 +133,7 @@ class FileSystem(Fuse):
 
     datetime_format = '%Y-%m-%d %H:%M:%S'
 
-    null_stat = fuse.Stat(st_mode=stat.S_IFDIR | 0755,
+    null_stat = fuse.Stat(st_mode=stat.S_IFDIR | 0o755,
                           st_ino=0,
                           st_dev=0,
                           st_nlink=2,
@@ -594,6 +594,8 @@ class FileSystem(Fuse):
                                    'state': 'run'})
             p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             stdout, stderr = p.communicate()
+            stdout = stdout.decode('utf-8')
+            stderr = stderr.decode('utf-8')
             self.logger.debug('%s%s' % (stdout, stderr))
         self._burp_set_status(FileSystem.burp_done)
         # unlock the configuration file
@@ -646,6 +648,8 @@ class FileSystem(Fuse):
         self.logger.debug('Getting list of backups with: %s' % ' '.join(cmd))
         p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         stdout, stderr = p.communicate()
+        stdout = stdout.decode('utf-8')
+        stderr = stderr.decode('utf-8')
         self.logger.debug('%s' % stdout)
         matches = re.finditer(('^Backup: ([0-9]{7}) ' +
                                '([0-9]{4})-([0-9]{2})-([0-9]{2}) ' +
@@ -668,7 +672,7 @@ class FileSystem(Fuse):
             self.logger.error('%s%s' % (stdout, stderr))
             raise RuntimeError('cannot determine list of available backups')
 
-        backup_ids, backup_dates = zip(*available_backups)
+        backup_ids, backup_dates = list(zip(*available_backups))
         ibackup = None
         nbackup = None
         
@@ -700,24 +704,28 @@ class FileSystem(Fuse):
             p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
             inp = 'j:pretty-print-off'
             self.logger.debug(inp)
-            p.stdin.write('%s\n' % inp)
+            p.stdin.write(('%s\n' % inp).encode('utf-8'))
+            p.stdin.flush()
             ready = False
             while p.poll() is None and not ready:
-                line = p.stdout.readline().rstrip('\n')
+                line = p.stdout.readline().decode('utf-8').rstrip('\n')
                 self.logger.debug(line)
                 ready = 'pretty print off' in line.lower()
             if not ready:
                 raise RuntimeError('burp monitor terminated - please verify that the server is configured to allow remote status monitor (hint: "status_address=::")') 
             inp = 'c:%s:b:%d:p:*' % (client, ibackup)
             self.logger.debug(inp)
-            p.stdin.write('%s\n' % inp)
-            json_string = p.stdout.readline()
+            p.stdin.write(('%s\n' % inp).encode('utf-8'))
+            p.stdin.flush()
+            json_string = p.stdout.readline().decode('utf-8')
             p.stdin.close()
         else:
             cmd = cmd_prefix + ['-b', '%d' % ibackup, '-a', 'L', '-j']
             self.logger.debug('Getting list of files in backup with: %s' % ' '.join(cmd))
             p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             stdout, stderr = p.communicate()
+            stdout = stdout.decode('utf-8')
+            stderr = stderr.decode('utf-8')
             json_string = '\n'.join(
                 [line for line in stdout.splitlines()
                  if not re.match(('^([0-9]{4})-([0-9]{2})-([0-9]{2}) ' +
@@ -934,7 +942,7 @@ class FileSystem(Fuse):
         path = path if path.endswith('/') else path + '/'
         for key in ['.', '..']:
             yield fuse.Direntry(key)
-        for key in self.dirs[path].keys():
+        for key in list(self.dirs[path].keys()):
             if len(key) > 0:
                 if self.use_ino:
                     bs = self.getattr(path + key)
@@ -965,7 +973,7 @@ class FileSystem(Fuse):
             self.realpath = fs._extract([path])[0]
             self.vss_offset, self.vss_overhead = fs._vss_parse(self.realpath, path)
             self.file = os.fdopen(os.open(self.realpath, flags, *mode),
-                                  flag2mode(flags))
+                                  flag2mode(flags)+'b')
             self.fd = self.file.fileno()
             self.direct_io = False
             self.keep_cache = True
@@ -1003,6 +1011,8 @@ class BurpFuseOptParse(FuseOptParse):
                 cmd = [self.values.burp, '-c', self.values.conf, '-v']
                 p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
                 stdout, stderr = p.communicate()
+                stdout = stdout.decode('utf-8')
+                stderr = stderr.decode('utf-8')
                 match = re.search('burp-(.*)\n$', stdout)
                 if match:
                     self._burp_version = '%s' % match.group(1)
@@ -1074,8 +1084,8 @@ BurpFS: exposes the Burp backup storage as a Filesystem in USErspace
                              help=("make absolute path symlinks point to path "
                                    "under mount point  [default: %default]"))
     server.parser.add_option(mountopt="logging",
-                             choices=LOGGING_LEVELS.keys(),
-                             metavar='|'.join(LOGGING_LEVELS.keys()),
+                             choices=list(LOGGING_LEVELS.keys()),
+                             metavar='|'.join(list(LOGGING_LEVELS.keys())),
                              default=server.logging,
                              help="logging level [default: %default]")
     server.parser.add_option(mountopt="syslog",
