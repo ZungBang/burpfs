@@ -276,6 +276,9 @@ class FileSystem(Fuse):
             r = re.sub(r"\\['`\x00-\x1f]", ".", re.escape(item_path))
             # we also make sure that the resulting regex isn't longer
             # than 255 characters by replacing its tail with r'.*'
+            # FIXME: this doesn't seem to play well with string
+            # encode/decode that's needed w/ python3 to switch between
+            # strings and byte arrays
             if len(r) > self.path_regex_size_limit:
                 l = self.path_regex_size_limit - 4
                 while (l > 0 and r[l - 1] == '\\'):
@@ -594,8 +597,6 @@ class FileSystem(Fuse):
                                    'state': 'run'})
             p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             stdout, stderr = p.communicate()
-            stdout = stdout.decode('utf-8')
-            stderr = stderr.decode('utf-8')
             self.logger.debug('%s%s' % (stdout, stderr))
         self._burp_set_status(FileSystem.burp_done)
         # unlock the configuration file
@@ -648,8 +649,6 @@ class FileSystem(Fuse):
         self.logger.debug('Getting list of backups with: %s' % ' '.join(cmd))
         p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         stdout, stderr = p.communicate()
-        stdout = stdout.decode('utf-8')
-        stderr = stderr.decode('utf-8')
         self.logger.debug('%s' % stdout)
         matches = re.finditer(('^Backup: ([0-9]{7}) ' +
                                '([0-9]{4})-([0-9]{2})-([0-9]{2}) ' +
@@ -704,28 +703,26 @@ class FileSystem(Fuse):
             p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
             inp = 'j:pretty-print-off'
             self.logger.debug(inp)
-            p.stdin.write(('%s\n' % inp).encode('utf-8'))
+            p.stdin.write('%s\n' % inp)
             p.stdin.flush()
             ready = False
             while p.poll() is None and not ready:
-                line = p.stdout.readline().decode('utf-8').rstrip('\n')
+                line = p.stdout.readline().rstrip('\n')
                 self.logger.debug(line)
                 ready = 'pretty print off' in line.lower()
             if not ready:
                 raise RuntimeError('burp monitor terminated - please verify that the server is configured to allow remote status monitor (hint: "status_address=::")') 
             inp = 'c:%s:b:%d:p:*' % (client, ibackup)
             self.logger.debug(inp)
-            p.stdin.write(('%s\n' % inp).encode('utf-8'))
+            p.stdin.write('%s\n' % inp)
             p.stdin.flush()
-            json_string = p.stdout.readline().decode('utf-8')
+            json_string = p.stdout.readline()
             p.stdin.close()
         else:
             cmd = cmd_prefix + ['-b', '%d' % ibackup, '-a', 'L', '-j']
             self.logger.debug('Getting list of files in backup with: %s' % ' '.join(cmd))
             p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             stdout, stderr = p.communicate()
-            stdout = stdout.decode('utf-8')
-            stderr = stderr.decode('utf-8')
             json_string = '\n'.join(
                 [line for line in stdout.splitlines()
                  if not re.match(('^([0-9]{4})-([0-9]{2})-([0-9]{2}) ' +
@@ -1011,8 +1008,6 @@ class BurpFuseOptParse(FuseOptParse):
                 cmd = [self.values.burp, '-c', self.values.conf, '-v']
                 p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
                 stdout, stderr = p.communicate()
-                stdout = stdout.decode('utf-8')
-                stderr = stderr.decode('utf-8')
                 match = re.search('burp-(.*)\n$', stdout)
                 if match:
                     self._burp_version = '%s' % match.group(1)
