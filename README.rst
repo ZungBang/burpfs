@@ -7,9 +7,9 @@ USErspace (FUSE_).
 
 .. _BurpFS: https://github.com/ZungBang/burpfs
 .. _Burp: http://burp.grke.net/
-.. _FUSE: http://fuse.sourceforge.net/
+.. _FUSE: https://github.com/libfuse/libfuse
 
-Copyright |(C)| 2012-2018 Avi Rozen <avi.rozen@gmail.com>
+Copyright |(C)| 2012-2019 Avi Rozen <avi.rozen@gmail.com>
 
 .. contents:: 
 
@@ -28,7 +28,7 @@ use-cases:
 - comparing backup jobs (using several mount points)
 - easier restore from backup
 
-.. _rsync: http://rsync.samba.org/
+.. _rsync: https://rsync.samba.org
 
 
 Installation
@@ -38,7 +38,9 @@ There's no official release at this point, so please clone the public
 **BurpFS** Git repository_ and run ``burpfs`` as ``root`` from the
 ``burpfs`` directory.
 
-**BurpFS** requires Burp 1.3.22 and up, Python_ 2.7 and Python FUSE_.
+**BurpFS** requires Burp 1.3.22 and up, Python_ 2.7 and up, FUSE_ 2.x
+(note that Python FUSE bindings_ 1.0.0 and up is *reuqired* for Python
+3.x). 
 
 You must set the client machine that you mount the filesystem on as a
 ``restore-client`` at the server side.
@@ -47,9 +49,11 @@ With Burp 2.x **BurpFS** uses the burp monitor to browse the backup
 manifest, so you need to be able to run ``burp -a m`` on the same
 machine you try to mount the filesystem on.
 
+
 .. _repository: https://github.com/ZungBang/burpfs.git
-.. _Python: http://www.python.org
-.. _FUSE: http://fuse.sourceforge.net/
+.. _Python: https://www.python.org
+.. _FUSE: https://github.com/libfuse/libfuse
+.. _bindings: https://github.com/libfuse/python-fuse
 
 
 Usage Examples
@@ -95,15 +99,19 @@ Limitations
 **BurpFS** is in its rough-around-the-edges alpha stage. Expect
 breakage. Please report Bugs_.
 
-**BurpFS** queries the Burp server for the files list only once, as
-the the filesystem is initialized. There's nothing to prevent the
-backup being represented from being deleted at the server side while
-the filesystem is mounted. **BurpFS** is liable to fail in interesting
+**BurpFS** queries the Burp server for the files list only once, when
+the filesystem is initialized. There's nothing to prevent the backup
+being represented from being deleted at the server side while the
+filesystem is mounted. **BurpFS** is liable to fail in interesting
 ways in this case.
 
 
 Changelog
 ---------
+**Version 0.3.4 (2019-11-12)**
+
+- Python 3 transition
+
 **Version 0.3.3 (2018-10-25)**
 
 - workaround: access to files with back-quotes in their name

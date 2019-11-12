@@ -1,7 +1,7 @@
 #! /usr/bin/env python
 
 # BurpFS - Burp Filesystem in USErspace
-# Copyright (C) 2012-2018 Avi Rozen <avi.rozen@gmail.com>
+# Copyright (C) 2012-2019 Avi Rozen <avi.rozen@gmail.com>
 #
 # This file is part of BurpFS.
 #
@@ -38,7 +38,7 @@ setup(
     packages = find_packages(),
     license='GPL',
     platforms=['Linux'],
-    install_requires=['fuse-python>=0.2'],
+    install_requires=['fuse-python>=1.0.0'],
     classifiers = [
         "Development Status :: 3 - Alpha",
         "Topic :: System :: Filesystems",

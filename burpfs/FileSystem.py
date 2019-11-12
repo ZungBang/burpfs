@@ -1,7 +1,7 @@
 #! /usr/bin/env python
 
 # BurpFS - Burp Filesystem in USErspace
-# Copyright (C) 2012-2018 Avi Rozen <avi.rozen@gmail.com>
+# Copyright (C) 2012-2019 Avi Rozen <avi.rozen@gmail.com>
 #
 # This file is part of BurpFS.
 #
@@ -18,7 +18,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-__version__ = '0.3.3'
+__version__ = '0.3.4'
 
 import os
 import sys
