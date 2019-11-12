@@ -95,10 +95,8 @@ def totimestamp(dt, epoch=datetime(1970,1,1)):
 
 '''
 _decode_list and _decode_dict below are used to convince the JSON
-parser (json.loads) to avoid coercing everything into unicode because
-FUSE doesn't seem to like unicode strings (a simple eval instead of
-json.loads works, but it's not considered safe)
-
+parser (json.loads) to avoid coercing everything into unicode under
+Python 2.x
 taken from:
 http://stackoverflow.com/a/6633651
 '''
@@ -597,6 +595,9 @@ class FileSystem(Fuse):
                                    'state': 'run'})
             p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             stdout, stderr = p.communicate()
+            if sys.version_info.major >= 3:
+                stdout = stdout.decode('utf-8')
+                stderr = stderr.decode('utf-8')
             self.logger.debug('%s%s' % (stdout, stderr))
         self._burp_set_status(FileSystem.burp_done)
         # unlock the configuration file
@@ -649,6 +650,9 @@ class FileSystem(Fuse):
         self.logger.debug('Getting list of backups with: %s' % ' '.join(cmd))
         p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         stdout, stderr = p.communicate()
+        if sys.version_info.major >= 3:
+            stdout = stdout.decode('utf-8')
+            stderr = stderr.decode('utf-8')
         self.logger.debug('%s' % stdout)
         matches = re.finditer(('^Backup: ([0-9]{7}) ' +
                                '([0-9]{4})-([0-9]{2})-([0-9]{2}) ' +
@@ -703,20 +707,20 @@ class FileSystem(Fuse):
             p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
             inp = 'j:pretty-print-off'
             self.logger.debug(inp)
-            p.stdin.write('%s\n' % inp)
+            p.stdin.write(('%s\n' % inp).encode('utf-8'))
             p.stdin.flush()
             ready = False
             while p.poll() is None and not ready:
-                line = p.stdout.readline().rstrip('\n')
+                line = p.stdout.readline().decode('utf-8').rstrip('\n')
                 self.logger.debug(line)
                 ready = 'pretty print off' in line.lower()
             if not ready:
                 raise RuntimeError('burp monitor terminated - please verify that the server is configured to allow remote status monitor (hint: "status_address=::")') 
             inp = 'c:%s:b:%d:p:*' % (client, ibackup)
             self.logger.debug(inp)
-            p.stdin.write('%s\n' % inp)
+            p.stdin.write(('%s\n' % inp).encode('utf-8'))
             p.stdin.flush()
-            json_string = p.stdout.readline()
+            json_string = p.stdout.readline().decode('utf-8')
             p.stdin.close()
         else:
             cmd = cmd_prefix + ['-b', '%d' % ibackup, '-a', 'L', '-j']
@@ -728,7 +732,10 @@ class FileSystem(Fuse):
                  if not re.match(('^([0-9]{4})-([0-9]{2})-([0-9]{2}) ' +
                                   '([0-9]{2}):([0-9]{2}):([0-9]{2}):.*'), line)])
 
-        backup = json.loads(json_string, object_hook=_decode_dict, strict=False)
+        if sys.version_info.major < 3:
+            backup = json.loads(json_string, object_hook=_decode_dict, strict=False)
+        else:
+            backup = json.loads(json_string, strict=False)
         if self.parser.burp_version() >= '2':
             # burp 2.x.x
             files = backup['clients'][0]['backups'][0]['browse']['entries']
@@ -1008,6 +1015,9 @@ class BurpFuseOptParse(FuseOptParse):
                 cmd = [self.values.burp, '-c', self.values.conf, '-v']
                 p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
                 stdout, stderr = p.communicate()
+                if sys.version_info.major >= 3:
+                    stdout = stdout.decode('utf-8')
+                    stderr = stderr.decode('utf-8')
                 match = re.search('burp-(.*)\n$', stdout)
                 if match:
                     self._burp_version = '%s' % match.group(1)
