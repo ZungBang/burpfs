@@ -280,10 +280,10 @@ class FileSystem(Fuse):
                 # path should be valid utf-8 (encoded as such)
                 upath = path.decode('utf-8') 
             else:
-                # python3: unicode to begin with prevent
+                # python3: unicode to begin with
                 upath = path 
-            # path from being interpreted itself as a (possibly
-            # invalid) regex
+            # prevent path from being interpreted itself as a
+            # (possibly invalid) regex
             upath = re.escape(upath)
             # replace single quote/back-quote and control characters
             # with '.' (regex wildcard character) because these
