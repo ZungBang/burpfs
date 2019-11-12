@@ -35,6 +35,7 @@ import time
 import re
 import json
 import struct
+import unicodedata
 from datetime import datetime
 from bisect import bisect_left, bisect_right
 
@@ -126,6 +127,40 @@ def _decode_dict(data):
         rv[key] = value
     return rv
 
+
+# cut unicode string to specific byte string length
+# adapted from:
+# https://stackoverflow.com/a/13665637
+
+LENGTH_BY_PREFIX = [
+    (0xC0, 2), # first byte mask, total codepoint length
+    (0xE0, 3),
+    (0xF0, 4),
+    (0xF8, 5),
+    (0xFC, 6),
+]
+
+def codepoint_length(first_byte):
+    for mask, length in LENGTH_BY_PREFIX:
+        if first_byte & mask == mask:
+            return length
+    return 1 # ascii or invalid byte
+
+def cut_unicode_to_bytes_length(unicode_text, byte_limit):
+    utf8_bytes = unicode_text.encode('utf-8')
+    cut_index = 0
+    while cut_index < len(utf8_bytes):
+        codepoint_1st = utf8_bytes[cut_index]
+        if isinstance(codepoint_1st, str):
+            codepoint_1st = ord(codepoint_1st)
+        step = codepoint_length(codepoint_1st)
+        if cut_index + step > byte_limit:
+            # can't go a whole codepoint further, time to cut
+            return utf8_bytes[:cut_index].decode('utf-8')
+        else:
+            cut_index += step
+    # length limit is longer than our bytes strung, so no cutting
+    return unicode_text
 
 class FileSystem(Fuse):
 
@@ -231,6 +266,48 @@ class FileSystem(Fuse):
             self.fs.logger.debug('removing cache directory: %s' %
                                  self.prefix)
             shutil.rmtree(self.prefix, ignore_errors=True)
+
+        def _path2regex(self, path):
+            '''
+            convert path to regex for burp to extract
+
+            In order to specifically match just the given path we need
+            only return ^path$ as the regex. But we also need to
+            sanitize the path string for various reasons, so we run
+            the risk that burp will extract more files than we intend.
+            '''
+            if sys.version_info.major < 3:
+                # path should be valid utf-8 (encoded as such)
+                upath = path.decode('utf-8') 
+            else:
+                # python3: unicode to begin with prevent
+                upath = path 
+            # path from being interpreted itself as a (possibly
+            # invalid) regex
+            upath = re.escape(upath)
+            # replace single quote/back-quote and control characters
+            # with '.' (regex wildcard character) because these
+            # characters do not seem to play well with Python's Popen
+            r = u''.join(u'.' if (c in u"'`" or unicodedata.category(c) == 'Cc') else c for c in upath)
+            # now cut the path so that the regex fits into a byte
+            # string of 255 bytes:
+            # does it fit?
+            if r != cut_unicode_to_bytes_length(r, self.path_regex_size_limit - 2):
+                # no - remove two more characters to make room for the
+                # wildcard '.*'
+                r = cut_unicode_to_bytes_length(r, self.path_regex_size_limit - 4)
+                # remove any trailing back-slashes, just in case we
+                # removed part of an escape sequence that we
+                # introduced with re.escape above
+                r = r.rstrip(u'\\')
+                # match whatever we removed
+                r += u'.*'
+            # finally make sure we match the whole path
+            r = u'^' + r + u'$'
+            if sys.version_info.major < 3:
+                r = r.encode('utf-8')
+            return r
+
             
         def find(self, path):
             '''
@@ -266,24 +343,7 @@ class FileSystem(Fuse):
             regexs = []
             # build regex for burp
             item_path = path if self.fs.dirs[head][tail].under_root else path[1:]
-            # we replace single quote/back-quote and literal control
-            # characters with a dot (regex wildcard character), and
-            # thus run the risk that burp will extract more files than
-            # we intend, because these characters do not seem to play
-            # well with Python's Popen
-            r = re.sub(r"\\['`\x00-\x1f]", ".", re.escape(item_path))
-            # we also make sure that the resulting regex isn't longer
-            # than 255 characters by replacing its tail with r'.*'
-            # FIXME: this doesn't seem to play well with string
-            # encode/decode that's needed w/ python3 to switch between
-            # strings and byte arrays
-            if len(r) > self.path_regex_size_limit:
-                l = self.path_regex_size_limit - 4
-                while (l > 0 and r[l - 1] == '\\'):
-                    l -= 1
-                r = r[0:l] + r'.*'
-            # the actual regex
-            regexs.append(r'^' + r + r'$')
+            regexs.append(self._path2regex(item_path))
 
             # we need to extract the file
             # but, if it's a hard-link we must also make sure the link target
@@ -555,7 +615,7 @@ class FileSystem(Fuse):
         '''
         # we allow locking to fail, so as to allow
         # at least a single instance of burpfs,
-        # even if we can't lock the sd conf file
+        # even if we can't lock the conf file
         try:
             f = open(self.conf, 'r')
             fcntl.flock(f, fcntl.LOCK_EX)
