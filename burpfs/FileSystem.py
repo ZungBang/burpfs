@@ -39,7 +39,12 @@ import unicodedata
 from datetime import datetime
 from bisect import bisect_left, bisect_right
 
-from LogFile import *
+# incantation to avoid import errors
+# https://stackoverflow.com/a/56120695
+try:
+    from .LogFile import *
+except ( ValueError, ImportError ):
+    from LogFile import *
 
 # pull in some spaghetti to make this stuff work
 # without fuse-py being installed
