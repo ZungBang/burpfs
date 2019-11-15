@@ -18,7 +18,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-__version__ = '0.3.4'
+__version__ = '0.3.5'
 
 import os
 import sys
@@ -286,14 +286,28 @@ class FileSystem(Fuse):
                 upath = path.decode('utf-8') 
             else:
                 # python3: unicode to begin with
-                upath = path 
-            # prevent path from being interpreted itself as a
-            # (possibly invalid) regex
-            upath = re.escape(upath)
-            # replace single quote/back-quote and control characters
-            # with '.' (regex wildcard character) because these
-            # characters do not seem to play well with Python's Popen
-            r = u''.join(u'.' if (c in u"'`" or unicodedata.category(c) == 'Cc') else c for c in upath)
+                upath = path
+
+            # sanitation:
+            #
+            # 1) replace single quote/back-quote and control
+            #    characters with '.' (regex wildcard character)
+            #    because these characters do not seem to play well
+            #    with Python's Popen
+            #
+            # 2) prevent path from being interpreted as regex
+            #
+            # 3) limit utf8 encoded regex length to 255 bytes 
+            
+            # replace bad characters with new line characters
+            r = u''.join(u'\n' if (c in u"'`" or unicodedata.category(c) == 'Cc') else c for c in upath)
+            # escape special characters to prevent path from being
+            # interpreted itself as a (possibly invalid) regex
+            r = re.escape(r)
+            # replace escaped new lines with a dot (this dance allows
+            # this logic to work with both Python2 and 3, since
+            # re.escape has changed behavior, between versions)
+            r = r.replace(u'\\\n', u'.')
             # now cut the path so that the regex fits into a byte
             # string of 255 bytes:
             # does it fit?
@@ -307,6 +321,7 @@ class FileSystem(Fuse):
                 r = r.rstrip(u'\\')
                 # match whatever we removed
                 r += u'.*'
+                
             # finally make sure we match the whole path
             r = u'^' + r + u'$'
             if sys.version_info.major < 3:
