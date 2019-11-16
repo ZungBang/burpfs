@@ -336,8 +336,6 @@ class FileSystem(Fuse):
             may return up to two paths in case path is a hard link
             '''
             realpath = os.path.normpath(self.path + '/' + path)
-            # handle filenames containing newlines (WTF?)
-            realpath = realpath.replace('\n', '\r')
             head, tail = self.fs._split(path)
             # sanity check: path should not be a directory
             if tail == '':
