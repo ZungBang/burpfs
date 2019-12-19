@@ -73,7 +73,7 @@ client must be configured as a ``restore_client`` for ``dumbo`` at the
 
         burpfs -o backup=50,client=dumbo /path/to/mount/point
 
-Mount the only the *modified* contents of the backup #50 for client
+Mount only the *modified* contents of the backup #50 for client
 ``dumbo``, compared with the backup preceding it:
 
 ::
