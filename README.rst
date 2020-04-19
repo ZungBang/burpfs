@@ -9,7 +9,7 @@ USErspace (FUSE_).
 .. _Burp: http://burp.grke.net/
 .. _FUSE: https://github.com/libfuse/libfuse
 
-Copyright |(C)| 2012-2019 Avi Rozen <avi.rozen@gmail.com>
+Copyright |(C)| 2012-2020 Avi Rozen <avi.rozen@gmail.com>
 
 .. contents:: 
 
@@ -108,6 +108,10 @@ ways in this case.
 
 Changelog
 ---------
+**Version 0.3.7 (2020-04-19)**
+
+- added support for burp 2.2.12 and up
+
 **Version 0.3.6 (2019-11-16)**
 
 - fixed handling of new lines in file names
