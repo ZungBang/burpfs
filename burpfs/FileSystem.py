@@ -1090,15 +1090,19 @@ class BurpFuseOptParse(FuseOptParse):
         '''
         if not self._burp_version:
             try:
-                cmd = [self.values.burp, '-c', self.values.conf, '-v']
-                p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                stdout, stderr = p.communicate()
-                if sys.version_info.major >= 3:
-                    stdout = stdout.decode('utf-8')
-                    stderr = stderr.decode('utf-8')
-                match = re.search('burp-(.*)\n$', stdout)
-                if match:
-                    self._burp_version = '%s' % match.group(1)
+                # burp version command line option changed from -v to
+                # -V on 2.2.12 so we try both ...
+                for version_opt in ['v', 'V']:
+                    cmd = [self.values.burp, '-c', self.values.conf, '-%s' % version_opt]
+                    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                    stdout, stderr = p.communicate()
+                    if sys.version_info.major >= 3:
+                        stdout = stdout.decode('utf-8')
+                        stderr = stderr.decode('utf-8')
+                    match = re.search('burp-(.*)\n$', stdout)
+                    if match:
+                        self._burp_version = '%s' % match.group(1)
+                        break
             except:
                 #traceback.print_exc()
                 pass
