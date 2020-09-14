@@ -108,6 +108,10 @@ ways in this case.
 
 Changelog
 ---------
+**Version 0.3.8 (2020-09-14)**
+
+- do not try to open backup in 'working' state
+
 **Version 0.3.7 (2020-04-19)**
 
 - added support for burp 2.2.12 and up

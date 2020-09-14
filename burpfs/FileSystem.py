@@ -18,7 +18,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-__version__ = '0.3.7'
+__version__ = '0.3.8'
 
 import os
 import sys
@@ -734,7 +734,8 @@ class FileSystem(Fuse):
         self.logger.debug('%s' % stdout)
         matches = re.finditer(('^Backup: ([0-9]{7}) ' +
                                '([0-9]{4})-([0-9]{2})-([0-9]{2}) ' +
-                               '([0-9]{2}):([0-9]{2}):([0-9]{2})'),
+                               '([0-9]{2}):([0-9]{2}):([0-9]{2})' +
+                               '(?! .*\(working\))'),
                               stdout, re.MULTILINE)
         if matches:
             available_backups = [
