@@ -42,22 +42,15 @@ from bisect import bisect_left, bisect_right
 # incantation to avoid import errors
 # https://stackoverflow.com/a/56120695
 try:
-    from .LogFile import *
-except ( ValueError, ImportError ):
-    from LogFile import *
-
-# pull in some spaghetti to make this stuff work
-# without fuse-py being installed
-try:
-    import _find_fuse_parts
-except ImportError:
-    pass
+    from .LogFile import logging, LOGGING_LEVELS, LogFile
+except (ValueError, ImportError):
+    from LogFile import logging, LOGGING_LEVELS, LogFile
 
 import fuse
 from fuse import Fuse, FuseOptParse
 
 if not hasattr(fuse, '__version__'):
-    raise RuntimeError(\
+    raise RuntimeError(
         "your fuse-py doesn't know of fuse.__version__, probably it's too old")
 
 fuse.fuse_python_api = (0, 2)
@@ -77,6 +70,7 @@ def flag2mode(flags):
 
     return m
 
+
 def makedirs(path):
     '''
     create path like mkdir -p
@@ -90,7 +84,8 @@ def makedirs(path):
         else:
             raise
 
-def totimestamp(dt, epoch=datetime(1970,1,1)):
+
+def totimestamp(dt, epoch=datetime(1970, 1, 1)):
     '''
     convert datetime to (UTC) timestamp
     adapted from: http://stackoverflow.com/a/8778548/27831
@@ -99,13 +94,12 @@ def totimestamp(dt, epoch=datetime(1970,1,1)):
     return (td.microseconds + (td.seconds + td.days * 24 * 3600) * 10**6) / 1e6
 
 
-'''
-_decode_list and _decode_dict below are used to convince the JSON
-parser (json.loads) to avoid coercing everything into unicode under
-Python 2.x
-taken from:
-http://stackoverflow.com/a/6633651
-'''
+# _decode_list and _decode_dict below are used to convince the JSON
+# parser (json.loads) to avoid coercing everything into unicode under
+# Python 2.x
+# taken from:
+# http://stackoverflow.com/a/6633651
+
 def _decode_list(data):
     rv = []
     for item in data:
@@ -117,6 +111,7 @@ def _decode_list(data):
             item = _decode_dict(item)
         rv.append(item)
     return rv
+
 
 def _decode_dict(data):
     rv = {}
@@ -138,18 +133,20 @@ def _decode_dict(data):
 # https://stackoverflow.com/a/13665637
 
 LENGTH_BY_PREFIX = [
-    (0xC0, 2), # first byte mask, total codepoint length
+    (0xC0, 2),  # first byte mask, total codepoint length
     (0xE0, 3),
     (0xF0, 4),
     (0xF8, 5),
     (0xFC, 6),
 ]
 
+
 def codepoint_length(first_byte):
     for mask, length in LENGTH_BY_PREFIX:
         if first_byte & mask == mask:
             return length
-    return 1 # ascii or invalid byte
+    return 1  # ascii or invalid byte
+
 
 def cut_unicode_to_bytes_length(unicode_text, byte_limit):
     utf8_bytes = unicode_text.encode('utf-8')
@@ -166,6 +163,7 @@ def cut_unicode_to_bytes_length(unicode_text, byte_limit):
             cut_index += step
     # length limit is longer than our bytes strung, so no cutting
     return unicode_text
+
 
 class FileSystem(Fuse):
 
@@ -211,8 +209,8 @@ class FileSystem(Fuse):
                  'state': 'idle'}
 
     vss_header_format = '<iiqi'
-    
-    vss_header_size = struct.calcsize(vss_header_format) #20
+
+    vss_header_size = struct.calcsize(vss_header_format)  # 20
 
     class _Entry:
         def __init__(self,
@@ -239,7 +237,6 @@ class FileSystem(Fuse):
                         '%s has negative timestamp %s=%d, will use 0' %
                         (path, a, t))
                     setattr(self.stat, a, 0)
-
 
     class _Cache:
         '''
@@ -283,7 +280,7 @@ class FileSystem(Fuse):
             '''
             if sys.version_info.major < 3:
                 # path should be valid utf-8 (encoded as such)
-                upath = path.decode('utf-8') 
+                upath = path.decode('utf-8')
             else:
                 # python3: unicode to begin with
                 upath = path
@@ -297,10 +294,12 @@ class FileSystem(Fuse):
             #
             # 2) prevent path from being interpreted as regex
             #
-            # 3) limit utf8 encoded regex length to 255 bytes 
-            
+            # 3) limit utf8 encoded regex length to 255 bytes
+
             # replace bad characters with new line characters
-            r = u''.join(u'\n' if (c in u"'`" or unicodedata.category(c) == 'Cc') else c for c in upath)
+            r = u''.join(u'\n' if (c in u"'`" or
+                                   unicodedata.category(c) == 'Cc')
+                         else c for c in upath)
             # escape special characters to prevent path from being
             # interpreted itself as a (possibly invalid) regex
             r = re.escape(r)
@@ -321,14 +320,13 @@ class FileSystem(Fuse):
                 r = r.rstrip(u'\\')
                 # match whatever we removed
                 r += u'.*'
-                
+
             # finally make sure we match the whole path
             r = u'^' + r + u'$'
             if sys.version_info.major < 3:
                 r = r.encode('utf-8')
             return r
 
-            
         def find(self, path):
             '''
             return path in cache corresponding to input path and boolean
@@ -395,7 +393,6 @@ class FileSystem(Fuse):
                 pass
             self.fs.dirs[head][tail].queued_for_removal = False
 
-
         def close(self, path):
             '''
             update files in cache and maybe remove least recently used
@@ -439,7 +436,6 @@ class FileSystem(Fuse):
             assert(self.num_files >= 0)
             assert(self.total_size >= 0)
             self.fs._extract_lock.release()
-
 
     def __init__(self, *args, **kw):
         '''
@@ -494,9 +490,9 @@ class FileSystem(Fuse):
         head, tail = self._split(path[:-1])
         if not head or head == path:
             return
-        if not head in self.dirs:
+        if head not in self.dirs:
             self.dirs[head] = {tail: FileSystem._Entry(self, path)}
-        elif not tail in self.dirs[head]:
+        elif tail not in self.dirs[head]:
             self.dirs[head][tail] = FileSystem._Entry(self, path)
         self._add_parent_dirs(head)
 
@@ -514,7 +510,7 @@ class FileSystem(Fuse):
 
     def _vss_parse(self, realpath, path):
         '''
-        parse vss headers of realpath, cache results, 
+        parse vss headers of realpath, cache results,
         return base offset and size overhead
 
         vss headers are win32 stream id structures
@@ -524,7 +520,7 @@ class FileSystem(Fuse):
         if head not in self.dirs or tail not in self.dirs[head]:
             return 0, 0
         if (not self.dirs[head][tail].under_root and
-            self.dirs[head][tail].vss_overhead == 0 and 
+            self.dirs[head][tail].vss_overhead == 0 and
             self.dirs[head][tail].vss_offset == 0 and
             os.path.exists(realpath)):
             s = os.lstat(realpath)
@@ -569,7 +565,6 @@ class FileSystem(Fuse):
                             self.dirs[head][tail].vss_offset = 0
         return self.dirs[head][tail].vss_offset, self.dirs[head][tail].vss_overhead
 
-    
     def _extract(self, path_list):
         '''
         extract path list from storage, returns path list of extracted files
@@ -719,11 +714,11 @@ class FileSystem(Fuse):
             # deduce client name
             with open(self.conf, 'r') as conf:
                 for line in conf:
-                    match = re.search('^\s*cname\s*=\s*([^\s]*)', line)
+                    match = re.search(r'^\s*cname\s*=\s*([^\s]*)', line)
                     if match:
                         client = '%s' % match.group(1)
                         break
-            
+
         cmd = cmd_prefix + ['-a', 'l']
         self.logger.debug('Getting list of backups with: %s' % ' '.join(cmd))
         p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -732,14 +727,14 @@ class FileSystem(Fuse):
             stdout = stdout.decode('utf-8')
             stderr = stderr.decode('utf-8')
         self.logger.debug('%s' % stdout)
-        matches = re.finditer(('^Backup: ([0-9]{7}) ' +
-                               '([0-9]{4})-([0-9]{2})-([0-9]{2}) ' +
-                               '([0-9]{2}):([0-9]{2}):([0-9]{2})' +
-                               '(?! .*\(working\))'),
+        matches = re.finditer((r'^Backup: ([0-9]{7}) ' +
+                               r'([0-9]{4})-([0-9]{2})-([0-9]{2}) ' +
+                               r'([0-9]{2}):([0-9]{2}):([0-9]{2})' +
+                               r'(?! .*\(working\))'),
                               stdout, re.MULTILINE)
         if matches:
             available_backups = [
-                (int(match.group(1)), 
+                (int(match.group(1)),
                  datetime.strptime(
                         '%s-%s-%s %s:%s:%s' % (match.group(2),
                                                match.group(3),
@@ -757,14 +752,14 @@ class FileSystem(Fuse):
         backup_ids, backup_dates = list(zip(*available_backups))
         ibackup = None
         nbackup = None
-        
+
         if backup:
             ibackup = int(backup)
             nbackup = bisect_left(backup_ids, ibackup)
             if nbackup == len(backup_ids) or backup_ids[nbackup] != ibackup:
                 raise ValueError('backup must be one of %s' % repr(backup_ids))
         else:
-            ibackup = backup_ids[-1] # latest (we assume list is sorted by date)
+            ibackup = backup_ids[-1]  # latest (assume list is sorted by date)
             nbackup = -1
             if timespec:
                 query_date = datetime.strptime(timespec, FileSystem.datetime_format)
@@ -773,7 +768,7 @@ class FileSystem(Fuse):
                     raise RuntimeError('no backup found upto %s' % query_date)
                 nbackup -= 1
                 ibackup = backup_ids[nbackup]
-                
+
         if not ibackup:
             raise RuntimeError('could not determine backup number')
 
@@ -794,7 +789,7 @@ class FileSystem(Fuse):
                 self.logger.debug(line)
                 ready = 'pretty print off' in line.lower()
             if not ready:
-                raise RuntimeError('burp monitor terminated - please verify that the server is configured to allow remote status monitor (hint: "status_address=::")') 
+                raise RuntimeError('burp monitor terminated - please verify that the server is configured to allow remote status monitor (hint: "status_address=::")')
             inp = 'c:%s:b:%d:p:*' % (client, ibackup)
             self.logger.debug(inp)
             p.stdin.write(('%s\n' % inp).encode('utf-8'))
@@ -831,7 +826,6 @@ class FileSystem(Fuse):
 
         return files, ibackup, backup_date, diff_epoch
 
-
     def _json_to_stat(self, item):
         '''
         convert JSON file entry tokens into file stat structure
@@ -849,8 +843,7 @@ class FileSystem(Fuse):
                        st_blksize=0,
                        st_rdev=0)
         return st
-    
-        
+
     def _create_file_entry(self, item):
         '''
         create file entry tuple from a JSON file entry
@@ -872,7 +865,7 @@ class FileSystem(Fuse):
                                   under_root=under_root,
                                   hardlink=hardlink)
         return head, tail, entry
-        
+
     def initialize(self):
         '''
         initialize file list
@@ -897,7 +890,7 @@ class FileSystem(Fuse):
 
         # are we using inode numbers
         self.use_ino = 'use_ino' in self.fuse_args.optlist
-        
+
         # build dirs data structure
         num_entries = 0
         for file in files:
@@ -926,7 +919,7 @@ class FileSystem(Fuse):
             self.dirs[head][tail] = entry
             if entry.stat.st_mtime >= diff_epoch:
                 num_entries += 1
-        
+
         # fix st_ino
         if self.use_ino:
             self._update_inodes('/')
@@ -979,7 +972,7 @@ class FileSystem(Fuse):
             # place holder in case we add xattrs
             pass
         # attribute not found
-        if val == None:
+        if val is None:
             return -errno.ENODATA
         # We are asked for size of the value.
         if size == 0:
@@ -993,7 +986,7 @@ class FileSystem(Fuse):
         head, tail = self._split(path)
         xattrs = []
         if path == '/':
-            xattrs += [FileSystem.xattr_prefix + 
+            xattrs += [FileSystem.xattr_prefix +
                        a for a in FileSystem.xattr_fields_root]
             xattrs += [FileSystem.xattr_prefix + 'burp.' +
                        a for a in FileSystem.xattr_fields_burp]
@@ -1073,7 +1066,7 @@ class FileSystem(Fuse):
 class BurpFuseOptParse(FuseOptParse):
     '''
     We subclass FuseOptParse just so that we can honor the -o burp
-    command line option 
+    command line option
     '''
     def __init__(self, *args, **kw):
         self._burp_version = None
@@ -1105,7 +1098,7 @@ class BurpFuseOptParse(FuseOptParse):
                         self._burp_version = '%s' % match.group(1)
                         break
             except:
-                #traceback.print_exc()
+                # traceback.print_exc()
                 pass
         return self._burp_version
 
@@ -1119,7 +1112,7 @@ BurpFS: exposes the Burp backup storage as a Filesystem in USErspace
 
     # force -o sync_read
     sys.argv.extend(['-o', 'sync_read'])
-    
+
     server = FileSystem(
         version=__version__,
         parser_class=BurpFuseOptParse,
@@ -1198,7 +1191,7 @@ BurpFS: exposes the Burp backup storage as a Filesystem in USErspace
                 raise
 
     server.main()
-    
+
     # we shutdown after main, i.e. not in fsshutdown, because
     # calling fsshutdown with multithreaded==True seems to cause
     # the python fuse process to hang waiting for the python GIL
