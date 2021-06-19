@@ -1,7 +1,7 @@
 #! /usr/bin/env python
 
 # BurpFS - Burp Filesystem in USErspace
-# Copyright (C) 2012-2020 Avi Rozen <avi.rozen@gmail.com>
+# Copyright (C) 2012-2021 Avi Rozen <avi.rozen@gmail.com>
 #
 # This file is part of BurpFS.
 #
@@ -50,4 +50,3 @@ setup(
         "Programming Language :: Python",
         ],
     )
-
